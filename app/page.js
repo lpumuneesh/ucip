@@ -233,6 +233,121 @@ function isImageUrl(s) {
   return typeof s === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?.*)?$/i.test(s)
 }
 
+function PageContentEvidence({ pageKey, content, kind = 'added' }) {
+  if (!content) return null
+  const isRemoved = kind === 'removed'
+  const accent = isRemoved ? 'red' : 'emerald'
+  return (
+    <div className="w-[520px] max-w-[92vw] p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Badge variant="outline" className={cx('text-[10px] uppercase',
+          isRemoved ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+        )}>{isRemoved ? '− Removed page' : '+ New page'}</Badge>
+        <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200 uppercase">{pageKey}</Badge>
+      </div>
+      {content.url && (
+        <a href={content.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="block truncate text-[11px] text-indigo-300 hover:text-indigo-200 hover:underline mb-2">
+          <ExternalLink className="h-3 w-3 inline mr-1" />{content.url}
+        </a>
+      )}
+      {content.heroImage && (
+        <div className="mb-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 flex items-center gap-1"><Eye className="h-3 w-3" />Hero image</div>
+          <img src={content.heroImage} alt="hero" className="w-full max-h-32 object-cover rounded-md border border-white/10" onError={e => { e.currentTarget.style.display='none' }} />
+        </div>
+      )}
+      {content.title && (
+        <div className="mb-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">Page title</div>
+          <div className="text-sm text-white leading-snug">{content.title}</div>
+        </div>
+      )}
+      {content.description && (
+        <div className="mb-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">Meta description</div>
+          <div className="text-xs text-zinc-200 leading-relaxed">{content.description}</div>
+        </div>
+      )}
+      {content.h1 && content.h1.length > 0 && (
+        <div className="mb-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">H1 headlines</div>
+          <ul className="space-y-0.5 text-xs text-zinc-100">
+            {content.h1.map((h, i) => <li key={i} className="flex gap-1"><ArrowUpRight className="h-3 w-3 text-indigo-400 shrink-0 mt-0.5" /><span>{h}</span></li>)}
+          </ul>
+        </div>
+      )}
+      {content.h2 && content.h2.length > 0 && (
+        <div className="mb-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Sections / H2 ({content.h2.length})</div>
+          <div className="flex flex-wrap gap-1">
+            {content.h2.map((h, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-zinc-200">{h}</span>)}
+          </div>
+        </div>
+      )}
+      {content.ctas && content.ctas.length > 0 && (
+        <div className="mb-2 rounded-lg border border-yellow-500/20 bg-yellow-500/[0.05] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-yellow-300 mb-1 flex items-center gap-1"><Zap className="h-3 w-3" />CTAs</div>
+          <div className="flex flex-wrap gap-1">
+            {content.ctas.map((cta, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-100">{cta}</span>)}
+          </div>
+        </div>
+      )}
+      {content.stats && content.stats.length > 0 && (
+        <div className="mb-2 rounded-lg border border-indigo-500/20 bg-indigo-500/[0.05] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-indigo-300 mb-1 flex items-center gap-1"><TrendingUp className="h-3 w-3" />Key stats</div>
+          <div className="flex flex-wrap gap-1">
+            {content.stats.map((s, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-100">{s}</span>)}
+          </div>
+        </div>
+      )}
+      {content.paragraphs && content.paragraphs.length > 0 && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Content preview</div>
+          <div className="space-y-1 text-[11px] text-zinc-300 leading-relaxed max-h-24 overflow-y-auto">
+            {content.paragraphs.map((p, i) => <p key={i}>{p.slice(0, 220)}{p.length > 220 ? '…' : ''}</p>)}
+          </div>
+        </div>
+      )}
+      <div className={cx('text-[10px] mt-2 italic', isRemoved ? 'text-red-400/70' : 'text-emerald-400/70')}>
+        {isRemoved ? 'Captured from last snapshot before removal' : 'Captured from first snapshot after addition'}
+      </div>
+    </div>
+  )
+}
+
+function PageChip({ pageKey, url, content, kind }) {
+  const isRemoved = kind === 'removed'
+  const cls = isRemoved
+    ? 'bg-red-500/15 border-red-500/40 hover:bg-red-500/25 text-red-50 hover:text-white'
+    : 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-50 hover:text-white'
+  const accent = isRemoved ? 'text-red-300/80' : 'text-emerald-300/80'
+  const chip = (
+    <a href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className={cx('inline-flex items-center gap-1 px-2 py-0.5 border rounded-md text-[11px] transition', cls)}>
+      <ExternalLink className="h-2.5 w-2.5" />
+      <span className={cx('font-medium', isRemoved && 'line-through')}>{pageKey}</span>
+      {url && <span className={cx('truncate max-w-[240px]', accent)}>— {url.replace(/^https?:\/\//,'')}</span>}
+    </a>
+  )
+  if (!content) return chip
+  return (
+    <HoverCard openDelay={80} closeDelay={100}>
+      <HoverCardTrigger asChild>{chip}</HoverCardTrigger>
+      <HoverCardContent
+        side="bottom"
+        align="start"
+        sideOffset={8}
+        collisionPadding={16}
+        avoidCollisions
+        onClick={e => e.stopPropagation()}
+        className={cx('w-auto p-0 bg-zinc-950/95 border backdrop-blur-xl shadow-2xl z-50',
+          isRemoved ? 'border-red-500/30 shadow-red-950/50' : 'border-emerald-500/30 shadow-emerald-950/50')}
+      >
+        <PageContentEvidence pageKey={pageKey} content={content} kind={kind} />
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
 function EvidenceBody({ c, compact }) {
   const beforeIsImg = isImageUrl(c.before)
   const afterIsImg = isImageUrl(c.after)
@@ -270,6 +385,11 @@ function EvidenceBody({ c, compact }) {
           <div className="flex flex-wrap gap-1.5">
             {c.added.map((a, i) => {
               const url = c.addedUrls?.[a]
+              const content = c.addedContents?.[a]
+              // Use PageChip only for new_pages events (where each item is a page key with rich content)
+              if (c.type === 'new_pages' && (url || content)) {
+                return <PageChip key={i} pageKey={a} url={url} content={content} kind="added" />
+              }
               return url ? (
                 <a key={i} href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 rounded-md text-[11px] text-emerald-50 hover:text-white transition">
                   <ExternalLink className="h-2.5 w-2.5" /><span className="font-medium">{a}</span>
@@ -280,6 +400,7 @@ function EvidenceBody({ c, compact }) {
               )
             })}
           </div>
+          {c.type === 'new_pages' && <div className="text-[10px] text-emerald-400/70 mt-1.5 italic">Hover a page for content evidence</div>}
         </div>
       )}
       {c.removed && c.removed.length > 0 && (
@@ -288,6 +409,10 @@ function EvidenceBody({ c, compact }) {
           <div className="flex flex-wrap gap-1.5">
             {c.removed.map((a, i) => {
               const url = c.removedUrls?.[a]
+              const content = c.removedContents?.[a]
+              if (c.type === 'removed_pages' && (url || content)) {
+                return <PageChip key={i} pageKey={a} url={url} content={content} kind="removed" />
+              }
               return url ? (
                 <a key={i} href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/15 border border-red-500/40 hover:bg-red-500/25 rounded-md text-[11px] text-red-50 hover:text-white transition">
                   <ExternalLink className="h-2.5 w-2.5" /><span className="font-medium line-through">{a}</span>
@@ -298,6 +423,7 @@ function EvidenceBody({ c, compact }) {
               )
             })}
           </div>
+          {c.type === 'removed_pages' && <div className="text-[10px] text-red-400/70 mt-1.5 italic">Hover a page to see what content was on it before removal</div>}
         </div>
       )}
     </div>
