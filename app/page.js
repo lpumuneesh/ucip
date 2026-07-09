@@ -109,6 +109,7 @@ function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
   const seo = uni.health?.seoScore || 0
   const status = uni.health?.status || 'idle'
   const changes = uni.health?.changes || 0
+  const pageCount = uni.health?.pageCount || 0
   return (
     <Glass className="p-4 hover:border-white/20 transition group">
       <div className="flex items-start gap-3">
@@ -126,11 +127,15 @@ function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
         </div>
         <StatusChip status={status} />
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+      <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
         <div>
           <div className="text-zinc-500">SEO</div>
           <div className="font-semibold tabular-nums">{seo}<span className="text-zinc-500">/100</span></div>
           <Progress value={seo} className="h-1 mt-1" />
+        </div>
+        <div>
+          <div className="text-zinc-500">Pages</div>
+          <div className="font-semibold tabular-nums text-indigo-300">{pageCount}</div>
         </div>
         <div>
           <div className="text-zinc-500">Changes</div>
@@ -167,12 +172,16 @@ function ChangeRow({ c }) {
           {c.type === 'title' || c.type === 'description' ? <FileText className="h-4 w-4 text-blue-300" /> :
            c.type === 'navigation' ? <Layers className="h-4 w-4 text-purple-300" /> :
            c.type === 'ctas' ? <Zap className="h-4 w-4 text-yellow-300" /> :
+           c.type === 'new_pages' || c.type === 'removed_pages' ? <Layers className="h-4 w-4 text-emerald-300" /> :
            c.type?.startsWith('h') ? <ArrowUpRight className="h-4 w-4 text-emerald-300" /> :
            <Activity className="h-4 w-4 text-orange-300" />}
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium flex items-center gap-2">
             <span className="truncate">{c.universityName}</span>
+            {c.page && c.page !== 'site' && (
+              <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
+            )}
             <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
           </div>
           <div className="text-xs text-zinc-500 flex items-center gap-2">
@@ -263,6 +272,24 @@ function AiReportView({ report }) {
         </Glass>
       </div>
 
+      {r.pageByPage && r.pageByPage.length > 0 && (
+        <Glass className="p-4">
+          <div className="text-xs uppercase tracking-wider text-cyan-300 mb-2 flex items-center gap-1"><Layers className="h-3.5 w-3.5" />Page-by-Page Comparison</div>
+          <div className="space-y-1.5">
+            {r.pageByPage.map((p, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs rounded-lg border border-white/5 bg-white/[0.02] p-2">
+                <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 shrink-0">{p.page}</Badge>
+                <Badge variant="outline" className={cx('text-[10px] shrink-0',
+                  p.verdict === 'LPU wins' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' :
+                  p.verdict === 'Competitor wins' ? 'border-red-500/40 bg-red-500/10 text-red-300' :
+                  'border-zinc-500/40 bg-zinc-500/10 text-zinc-300')}>{p.verdict}</Badge>
+                <span className="text-zinc-300">{p.note}</span>
+              </div>
+            ))}
+          </div>
+        </Glass>
+      )}
+
       <Glass className="p-4">
         <div className="text-xs uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-1"><Sparkles className="h-3.5 w-3.5" />AI Recommendations</div>
         <div className="space-y-2">
@@ -274,6 +301,7 @@ function AiReportView({ report }) {
               </div>
               <div className="text-xs text-zinc-400 mt-1">{rec.detail}</div>
               <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-zinc-500">
+                {rec.targetPage && <span>📄 Page: <span className="text-zinc-300">{rec.targetPage}</span></span>}
                 <span>💼 Impact: <span className="text-zinc-300">{rec.businessImpact}</span></span>
                 <span>⚙️ Effort: <span className="text-zinc-300 capitalize">{rec.effort}</span></span>
               </div>
@@ -658,26 +686,53 @@ export default function App() {
             </div>
           ) : (
             <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                  <div className="text-xs text-zinc-500">SEO Score</div>
+                  <div className="text-xs text-zinc-500">Home SEO</div>
                   <div className="text-2xl font-semibold">{latestSnap.data.seo?.seoScore}<span className="text-zinc-500 text-sm">/100</span></div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                  <div className="text-xs text-zinc-500">Alt Coverage</div>
-                  <div className="text-2xl font-semibold">{latestSnap.data.seo?.altCoverage}%</div>
+                  <div className="text-xs text-zinc-500">Pages</div>
+                  <div className="text-2xl font-semibold text-indigo-300">{latestSnap.data.pageCount || 1}</div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                  <div className="text-xs text-zinc-500">Avg SEO</div>
+                  <div className="text-2xl font-semibold">{latestSnap.data.avgSeoScore ?? latestSnap.data.seo?.seoScore}</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
                   <div className="text-xs text-zinc-500">Fetch Time</div>
-                  <div className="text-2xl font-semibold">{latestSnap.elapsedMs}ms</div>
+                  <div className="text-2xl font-semibold">{Math.round(latestSnap.elapsedMs/1000)}s</div>
                 </div>
               </div>
+
+              {latestSnap.data.pages && Object.keys(latestSnap.data.pages).length > 1 && (
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                  <div className="text-xs text-zinc-500 mb-2 flex items-center justify-between">
+                    <span>Crawled Pages ({Object.keys(latestSnap.data.pages).length})</span>
+                    <span className="text-zinc-600">Click title → open</span>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-2">
+                    {Object.entries(latestSnap.data.pages).map(([key, p]) => (
+                      <a key={key} href={p.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-white/5 hover:border-white/20 bg-white/[0.01] p-2 transition group">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{key}</Badge>
+                          {p.ok ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <AlertCircle className="h-3 w-3 text-red-400" />}
+                          {p.seo?.seoScore !== undefined && <span className="text-[10px] text-zinc-500 ml-auto">SEO {p.seo.seoScore}</span>}
+                        </div>
+                        <div className="text-xs text-zinc-300 truncate mt-1 group-hover:text-white">{p.seo?.title || p.anchorText || <em className="text-zinc-500">no title</em>}</div>
+                        <div className="text-[10px] text-zinc-500 truncate">{p.url}</div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                <div className="text-xs text-zinc-500 mb-1">Title</div>
+                <div className="text-xs text-zinc-500 mb-1">Home Title</div>
                 <div>{latestSnap.data.seo?.title}</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                <div className="text-xs text-zinc-500 mb-1">Description</div>
+                <div className="text-xs text-zinc-500 mb-1">Home Description</div>
                 <div className="text-zinc-300">{latestSnap.data.seo?.description || <em className="text-zinc-500">Missing</em>}</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
@@ -687,17 +742,11 @@ export default function App() {
                 </div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                <div className="text-xs text-zinc-500 mb-2">Key Stats detected</div>
+                <div className="text-xs text-zinc-500 mb-2">Key Stats detected across site</div>
                 <div className="flex flex-wrap gap-1">
                   {latestSnap.data.structure?.stats?.map((n, i) => <span key={i} className="text-[11px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-200">{n}</span>)}
-                  {latestSnap.data.structure?.stats?.length === 0 && <span className="text-zinc-500 text-xs">None detected</span>}
+                  {(!latestSnap.data.structure?.stats || latestSnap.data.structure?.stats?.length === 0) && <span className="text-zinc-500 text-xs">None detected</span>}
                 </div>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                <div className="text-xs text-zinc-500 mb-2">H1 Headlines</div>
-                <ul className="list-disc list-inside space-y-1 text-zinc-300">
-                  {latestSnap.data.seo?.h1?.map((h, i) => <li key={i} className="text-xs">{h}</li>)}
-                </ul>
               </div>
             </div>
           )}

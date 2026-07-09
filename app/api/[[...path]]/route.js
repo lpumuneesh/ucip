@@ -98,8 +98,8 @@ async function crawlOneUniversity(db, uni) {
 
   // Update university health
   const health = result.ok
-    ? { status: 'healthy', seoScore: result.seo?.seoScore || 0, lastMs: result.elapsedMs, changes: diff.changeCount }
-    : { status: 'error', seoScore: 0, lastMs: result.elapsedMs, changes: 0 }
+    ? { status: 'healthy', seoScore: result.seo?.seoScore || 0, lastMs: result.elapsedMs, changes: diff.changeCount, pageCount: result.pageCount || 1, coverage: result.coverage || ['home'] }
+    : { status: 'error', seoScore: 0, lastMs: result.elapsedMs, changes: 0, pageCount: 0, coverage: [] }
 
   await db.collection('universities').updateOne(
     { id: uni.id },
@@ -146,13 +146,17 @@ async function handleRoute(request, { params }) {
       const target = body.universityId || 'all'
       const query = target === 'all' ? {} : { id: target }
       const unis = await db.collection('universities').find(query).toArray()
+      // Crawl sequentially to respect memory (~512MB heap)
       const results = []
-      // Crawl in parallel with concurrency
-      const CONC = 4
-      for (let i = 0; i < unis.length; i += CONC) {
-        const batch = unis.slice(i, i + CONC)
-        const chunk = await Promise.all(batch.map(u => crawlOneUniversity(db, u).catch(e => ({ error: e.message, uni: u.code }))))
-        results.push(...chunk)
+      for (const u of unis) {
+        try {
+          const r = await crawlOneUniversity(db, u)
+          results.push(r)
+          // give GC a chance
+          if (global.gc) global.gc()
+        } catch (e) {
+          results.push({ error: e.message, uni: u.code })
+        }
       }
       return handleCORS(NextResponse.json({
         ok: true,
