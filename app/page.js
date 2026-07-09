@@ -149,11 +149,11 @@ function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
         </div>
       </div>
       <div className="mt-4 flex gap-2">
-        <Button size="sm" variant="secondary" className="flex-1 h-8" onClick={() => onView(uni)}>
+        <Button size="sm" variant="secondary" className="flex-1 h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={() => onView(uni)}>
           <Eye className="h-3.5 w-3.5 mr-1" />View
         </Button>
         {!uni.primary && (
-          <Button size="sm" className="flex-1 h-8 bg-gradient-to-r from-indigo-500 to-violet-500 hover:opacity-90" onClick={() => onBenchmark(uni)} disabled={benchmarking === uni.id}>
+          <Button size="sm" className="flex-1 h-8 bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md" onClick={() => onBenchmark(uni)} disabled={benchmarking === uni.id}>
             {benchmarking === uni.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
             AI Benchmark
           </Button>
@@ -224,13 +224,37 @@ function ChangeRow({ c }) {
             {c.added && c.added.length > 0 && (
               <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 md:col-span-2">
                 <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1">+ Added ({c.added.length})</div>
-                <div className="flex flex-wrap gap-1">{c.added.map((a, i) => <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px]">{a}</span>)}</div>
+                <div className="flex flex-wrap gap-1">
+                  {c.added.map((a, i) => {
+                    const url = c.addedUrls?.[a]
+                    return url ? (
+                      <a key={i} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 rounded text-[11px] text-emerald-100 hover:text-white transition">
+                        <ExternalLink className="h-2.5 w-2.5" /><span>{a}</span>
+                        <span className="text-emerald-400/70 truncate max-w-[240px]">— {url.replace(/^https?:\/\//,'')}</span>
+                      </a>
+                    ) : (
+                      <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px]">{a}</span>
+                    )
+                  })}
+                </div>
               </div>
             )}
             {c.removed && c.removed.length > 0 && (
               <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2 md:col-span-2">
                 <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1">− Removed ({c.removed.length})</div>
-                <div className="flex flex-wrap gap-1">{c.removed.map((a, i) => <span key={i} className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-[11px]">{a}</span>)}</div>
+                <div className="flex flex-wrap gap-1">
+                  {c.removed.map((a, i) => {
+                    const url = c.removedUrls?.[a]
+                    return url ? (
+                      <a key={i} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 rounded text-[11px] text-red-100 hover:text-white transition">
+                        <ExternalLink className="h-2.5 w-2.5" /><span>{a}</span>
+                        <span className="text-red-400/70 truncate max-w-[240px]">— {url.replace(/^https?:\/\//,'')}</span>
+                      </a>
+                    ) : (
+                      <span key={i} className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-[11px]">{a}</span>
+                    )
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -658,10 +682,10 @@ export default function App() {
             <span>Search</span>
             <span className="ml-6 text-[10px] border border-white/10 rounded px-1.5 py-0.5 text-zinc-500">⌘K</span>
           </button>
-          <Button size="sm" variant="secondary" className="h-8" onClick={refresh}>
+          <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={refresh}>
             <RefreshCw className={cx('h-3.5 w-3.5 mr-1', loading && 'animate-spin')} />Refresh
           </Button>
-          <Button size="sm" className="h-8 bg-gradient-to-r from-indigo-500 to-violet-500 hover:opacity-90" onClick={() => runCrawl('all')} disabled={crawling}>
+          <Button size="sm" className="h-8 bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md" onClick={() => runCrawl('all')} disabled={crawling}>
             {crawling ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
             Run Daily Crawl
           </Button>
@@ -706,11 +730,11 @@ export default function App() {
                 </>
               )}
               <div className="mt-4 flex gap-2">
-                <Button size="sm" onClick={generateExec} disabled={execLoading} className="bg-white/10 hover:bg-white/20 border border-white/10">
+                <Button size="sm" onClick={generateExec} disabled={execLoading} className="bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-100 hover:text-white shadow-sm">
                   {execLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
                   Generate Executive Briefing
                 </Button>
-                <Button size="sm" variant="ghost" className="text-zinc-400" onClick={() => setTab('changes')}>
+                <Button size="sm" variant="ghost" className="text-zinc-200 hover:text-white hover:bg-white/10" onClick={() => setTab('changes')}>
                   View all changes <ChevronRight className="h-3.5 w-3.5 ml-1" />
                 </Button>
               </div>
