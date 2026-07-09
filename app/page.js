@@ -328,9 +328,9 @@ function ChangeRow({ c }) {
 
   return (
     <div className="border border-white/5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10 transition">
-      <HoverCard openDelay={200} closeDelay={80}>
+      <HoverCard openDelay={80} closeDelay={100}>
         <HoverCardTrigger asChild>
-          <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3">
+          <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3 rounded-xl">
             <div className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
               <ChangeIcon type={c.type} />
             </div>
@@ -357,12 +357,19 @@ function ChangeRow({ c }) {
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-2 text-[10px] text-zinc-500 shrink-0">
-              <Eye className="h-3 w-3" /><span>hover</span>
+              <Eye className="h-3 w-3" /><span>hover for evidence</span>
             </div>
             <SeverityChip severity={c.severity} />
           </button>
         </HoverCardTrigger>
-        <HoverCardContent side="right" align="start" className="w-auto max-w-[540px] p-3 bg-zinc-950/95 border-white/10 backdrop-blur-xl shadow-2xl">
+        <HoverCardContent
+          side="bottom"
+          align="start"
+          sideOffset={8}
+          collisionPadding={16}
+          avoidCollisions
+          className="w-[560px] max-w-[92vw] p-3 bg-zinc-950/95 border border-indigo-500/30 backdrop-blur-xl shadow-2xl shadow-indigo-950/50 z-50"
+        >
           <ChangeHoverPreview c={c} />
         </HoverCardContent>
       </HoverCard>
