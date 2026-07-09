@@ -7,11 +7,13 @@ import {
   Command as CommandIcon, Download, ExternalLink, Eye, FileText, Globe,
   GraduationCap, Layers, LineChart as LineChartIcon, Loader2, Minus,
   Plus, RefreshCw, Search, Send, ShieldCheck, Sparkles, TrendingUp,
-  Zap, Building2, Calendar, Bell, Filter, X
+  Zap, Building2, Calendar, Bell, Filter, X, LogOut, User as UserIcon, Users, Mail,
+  KeyRound, ShieldAlert, UserPlus, Trash2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
@@ -19,6 +21,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid,
@@ -26,13 +29,29 @@ import {
   AreaChart, Area, PieChart, Pie, Cell, Legend
 } from 'recharts'
 
+const TOKEN_KEY = 'ucip_token'
+
+function getToken() { if (typeof window === 'undefined') return null; return localStorage.getItem(TOKEN_KEY) }
+function setToken(t) { if (typeof window === 'undefined') return; if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY) }
+
 const api = (path, opts = {}) =>
   fetch(`/api${path}`, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...(opts.headers || {}),
+    },
   }).then(async r => {
     const j = await r.json().catch(() => ({}))
-    if (!r.ok) throw new Error(j.error || r.statusText)
+    if (!r.ok) {
+      if (r.status === 401) {
+        // token invalid - force re-login
+        setToken(null)
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('ucip:unauth'))
+      }
+      throw new Error(j.error || r.statusText)
+    }
     return j
   })
 
@@ -559,6 +578,256 @@ function TrendsView({ universities }) {
   )
 }
 
+function LoginGate({ onLogin }) {
+  const [email, setEmail] = useState('')
+  const [otp, setOtp] = useState('')
+  const [step, setStep] = useState('email') // email | otp
+  const [loading, setLoading] = useState(false)
+  const [devOtp, setDevOtp] = useState(null)
+
+  async function requestOtp(e) {
+    e?.preventDefault()
+    setLoading(true)
+    try {
+      const r = await api('/auth/request-otp', { method: 'POST', body: JSON.stringify({ email }) })
+      setStep('otp')
+      if (r.devOtp) {
+        setDevOtp(r.devOtp)
+        toast.info(`Dev mode: your code is ${r.devOtp}`)
+      } else {
+        toast.success('Check your inbox for the code.')
+      }
+    } catch (err) { toast.error(err.message) }
+    finally { setLoading(false) }
+  }
+
+  async function verifyOtp(e) {
+    e?.preventDefault()
+    setLoading(true)
+    try {
+      const r = await api('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ email, otp }) })
+      setToken(r.token)
+      onLogin(r.user)
+      toast.success(`Welcome, ${r.user.name}`)
+    } catch (err) { toast.error(err.message) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.18),_transparent_50%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.12),_transparent_50%)] bg-zinc-950">
+      <div className="w-full max-w-md">
+        <div className="flex items-center gap-3 mb-6 justify-center">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg">
+            <GraduationCap className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <div className="text-lg font-semibold">UCIP</div>
+            <div className="text-xs text-zinc-500">University Competitor Intelligence</div>
+          </div>
+        </div>
+
+        <Glass className="p-6">
+          {step === 'email' ? (
+            <form onSubmit={requestOtp} className="space-y-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Sign in</h2>
+                <p className="text-sm text-zinc-400 mt-1">Enter your LPU email to receive a one-time code.</p>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Email address</label>
+                <div className="relative">
+                  <Mail className="h-4 w-4 absolute left-3 top-2.5 text-zinc-500" />
+                  <Input
+                    type="email"
+                    placeholder="you@lpu.co.in"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    required
+                    autoFocus
+                    className="pl-9 bg-white/5 border-white/10 text-white placeholder:text-zinc-500 focus-visible:ring-indigo-500/40"
+                  />
+                </div>
+                <div className="text-[11px] text-zinc-500 mt-1.5">Only <span className="text-indigo-300">@lpu.co.in</span> emails are allowed.</div>
+              </div>
+              <Button type="submit" disabled={loading || !email} className="w-full bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md">
+                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                Send verification code
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={verifyOtp} className="space-y-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Enter code</h2>
+                <p className="text-sm text-zinc-400 mt-1">We sent a 6-digit code to <span className="text-white">{email}</span></p>
+              </div>
+              {devOtp && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200 flex items-start gap-2">
+                  <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div><b>Development mode</b> — SMTP is not configured. Your code is <span className="font-mono text-white">{devOtp}</span>. Configure SMTP env vars to email real users.</div>
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">6-digit code</label>
+                <div className="relative">
+                  <KeyRound className="h-4 w-4 absolute left-3 top-2.5 text-zinc-500" />
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={otp}
+                    onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+                    required
+                    autoFocus
+                    className="pl-9 tracking-[0.4em] font-mono text-lg bg-white/5 border-white/10 text-white placeholder:text-zinc-600 focus-visible:ring-indigo-500/40"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => { setStep('email'); setOtp(''); setDevOtp(null) }} className="text-zinc-300 hover:text-white hover:bg-white/10">
+                  Back
+                </Button>
+                <Button type="submit" disabled={loading || otp.length !== 6} className="flex-1 bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md">
+                  {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                  Verify & sign in
+                </Button>
+              </div>
+            </form>
+          )}
+        </Glass>
+        <div className="text-center text-[11px] text-zinc-600 mt-4">Secured with one-time codes · No passwords</div>
+      </div>
+    </div>
+  )
+}
+
+function AdminPanel({ me, onClose }) {
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [newEmail, setNewEmail] = useState('')
+  const [newRole, setNewRole] = useState('user')
+  const [adding, setAdding] = useState(false)
+
+  async function refresh() {
+    setLoading(true)
+    try {
+      const list = await api('/admin/users')
+      setUsers(list)
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { refresh() }, [])
+
+  async function addUser(e) {
+    e?.preventDefault()
+    setAdding(true)
+    try {
+      await api('/admin/users', { method: 'POST', body: JSON.stringify({ email: newEmail, role: newRole }) })
+      toast.success('User added')
+      setNewEmail(''); setNewRole('user')
+      refresh()
+    } catch (err) { toast.error(err.message) }
+    finally { setAdding(false) }
+  }
+  async function updateUser(id, patch) {
+    try {
+      await api(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+      toast.success('Updated')
+      refresh()
+    } catch (err) { toast.error(err.message) }
+  }
+  async function deleteUser(id, email) {
+    if (!confirm(`Delete ${email}? This cannot be undone.`)) return
+    try {
+      await api(`/admin/users/${id}`, { method: 'DELETE' })
+      toast.success('User deleted')
+      refresh()
+    } catch (err) { toast.error(err.message) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Glass className="p-4">
+        <form onSubmit={addUser} className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[240px]">
+            <label className="text-xs text-zinc-400 mb-1 block">Email</label>
+            <div className="relative">
+              <Mail className="h-4 w-4 absolute left-3 top-2.5 text-zinc-500" />
+              <Input value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="user@lpu.co.in" className="pl-9 bg-white/5 border-white/10 text-white" required />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Role</label>
+            <Select value={newRole} onValueChange={setNewRole}>
+              <SelectTrigger className="w-32 bg-white/5 border-white/10 text-white"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="user">User</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <Button type="submit" disabled={adding || !newEmail} className="bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white">
+            {adding ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <UserPlus className="h-4 w-4 mr-2" />}
+            Add user
+          </Button>
+        </form>
+      </Glass>
+
+      <Glass className="p-0 overflow-hidden">
+        <div className="p-4 flex items-center justify-between border-b border-white/5">
+          <div>
+            <div className="text-sm font-medium">Users ({users.length})</div>
+            <div className="text-xs text-zinc-500">Manage roles and access</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={refresh} className="text-zinc-300 hover:text-white hover:bg-white/10">
+            <RefreshCw className={cx('h-3.5 w-3.5 mr-1', loading && 'animate-spin')} />Refresh
+          </Button>
+        </div>
+        <div className="divide-y divide-white/5">
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 m-3" />)
+          ) : users.length === 0 ? (
+            <div className="p-10 text-center text-zinc-500 text-sm">No users yet</div>
+          ) : users.map(u => (
+            <div key={u.id} className="p-3 flex items-center gap-3 hover:bg-white/[0.02]">
+              <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-500/40 to-violet-500/40 border border-white/10 flex items-center justify-center text-sm font-semibold text-white shrink-0">
+                {u.email.slice(0,2).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-white flex items-center gap-2">
+                  <span className="truncate">{u.email}</span>
+                  {u.id === me?.id && <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200">you</Badge>}
+                </div>
+                <div className="text-[11px] text-zinc-500 flex items-center gap-2">
+                  <span>Joined {new Date(u.createdAt).toLocaleDateString()}</span>
+                  {u.lastLoginAt && <span>· Last login {new Date(u.lastLoginAt).toLocaleString()}</span>}
+                  {u.invitedBy && u.invitedBy !== 'self' && u.invitedBy !== 'system' && <span>· Invited by {u.invitedBy}</span>}
+                </div>
+              </div>
+              <Select value={u.role} onValueChange={v => updateUser(u.id, { role: v })}>
+                <SelectTrigger className="w-28 h-8 bg-white/5 border-white/10 text-white text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="user">User</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent>
+              </Select>
+              {u.status === 'active' ? (
+                <Button size="sm" variant="ghost" className="h-8 text-amber-300 hover:text-amber-200 hover:bg-amber-500/10" onClick={() => updateUser(u.id, { status: 'revoked' })}>
+                  <ShieldAlert className="h-3.5 w-3.5 mr-1" />Revoke
+                </Button>
+              ) : (
+                <Button size="sm" variant="ghost" className="h-8 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10" onClick={() => updateUser(u.id, { status: 'active' })}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />Restore
+                </Button>
+              )}
+              <Badge variant="outline" className={cx('text-[10px]', u.status === 'active' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-red-500/30 bg-red-500/10 text-red-300')}>{u.status}</Badge>
+              {u.id !== me?.id && (
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-red-300 hover:text-red-200 hover:bg-red-500/10" onClick={() => deleteUser(u.id, u.email)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </Glass>
+    </div>
+  )
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true)
   const [dash, setDash] = useState(null)
@@ -573,6 +842,23 @@ export default function App() {
   const [execLoading, setExecLoading] = useState(false)
   const [cmdOpen, setCmdOpen] = useState(false)
   const [tab, setTab] = useState('overview')
+  // Auth state
+  const [me, setMe] = useState(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
+
+  // Bootstrap: check current session
+  useEffect(() => {
+    if (!getToken()) { setAuthChecked(true); return }
+    api('/auth/me').then(r => { if (r.user) setMe(r.user) }).catch(() => setToken(null)).finally(() => setAuthChecked(true))
+  }, [])
+
+  // Listen for unauth events (e.g. 401)
+  useEffect(() => {
+    const h = () => { setMe(null); setDash(null); setExecSummary(null) }
+    window.addEventListener('ucip:unauth', h)
+    return () => window.removeEventListener('ucip:unauth', h)
+  }, [])
 
   async function refresh() {
     try {
@@ -588,7 +874,7 @@ export default function App() {
     }
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { if (me) refresh() }, [me])
 
   useEffect(() => {
     const onKey = e => {
@@ -662,6 +948,24 @@ export default function App() {
   }, [changes])
   const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#f43f5e', '#84cc16']
 
+  // === AUTH GATE ===
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+        <Loader2 className="h-6 w-6 text-indigo-400 animate-spin" />
+      </div>
+    )
+  }
+  if (!me) {
+    return <LoginGate onLogin={setMe} />
+  }
+
+  async function logout() {
+    try { await api('/auth/logout', { method: 'POST' }) } catch {}
+    setToken(null); setMe(null); setDash(null); setExecSummary(null)
+    toast.success('Signed out')
+  }
+
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.15),_transparent_50%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.10),_transparent_50%)] bg-zinc-950 text-zinc-100">
       {/* Top Bar */}
@@ -682,6 +986,11 @@ export default function App() {
             <span>Search</span>
             <span className="ml-6 text-[10px] border border-white/10 rounded px-1.5 py-0.5 text-zinc-500">⌘K</span>
           </button>
+          {me?.role === 'admin' && (
+            <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={() => setAdminOpen(true)}>
+              <ShieldCheck className="h-3.5 w-3.5 mr-1" />Admin
+            </Button>
+          )}
           <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={refresh}>
             <RefreshCw className={cx('h-3.5 w-3.5 mr-1', loading && 'animate-spin')} />Refresh
           </Button>
@@ -689,6 +998,18 @@ export default function App() {
             {crawling ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
             Run Daily Crawl
           </Button>
+          <div className="flex items-center gap-2 ml-2 pl-3 border-l border-white/10">
+            <div className="h-7 w-7 rounded-full bg-gradient-to-br from-indigo-500/60 to-violet-500/60 border border-white/10 flex items-center justify-center text-[11px] font-semibold text-white">
+              {me.email.slice(0,2).toUpperCase()}
+            </div>
+            <div className="hidden md:block text-xs leading-none">
+              <div className="text-white">{me.name || me.email.split('@')[0]}</div>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mt-0.5">{me.role}</div>
+            </div>
+            <Button size="icon" variant="ghost" className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-white/10" onClick={logout} title="Sign out">
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -881,6 +1202,19 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Admin Panel Dialog */}
+      <Dialog open={adminOpen} onOpenChange={setAdminOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-white/10 max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-indigo-400" />Admin — User Management
+            </DialogTitle>
+            <DialogDescription>Add users, change roles, revoke or restore access</DialogDescription>
+          </DialogHeader>
+          {adminOpen && <AdminPanel me={me} onClose={() => setAdminOpen(false)} />}
+        </DialogContent>
+      </Dialog>
 
       {/* AI Report Dialog */}
       <Dialog open={aiOpen} onOpenChange={setAiOpen}>

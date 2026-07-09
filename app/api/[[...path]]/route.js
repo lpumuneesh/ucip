@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { SEED_UNIVERSITIES } from '@/lib/universities'
 import { crawlSite, diffSnapshots } from '@/lib/crawler'
 import { generateBenchmark, generateExecutiveSummary } from '@/lib/ai'
+import { sendOtpEmail, hashCode, generateOtp, generateToken, isAllowedEmail, ALLOWED_DOMAIN, getSessionUser } from '@/lib/auth'
 
 let client
 let db
@@ -32,6 +33,38 @@ async function ensureSeed(db) {
     }))
     await db.collection('universities').insertMany(docs)
   }
+  // Seed initial admin users from env
+  const adminEmails = (process.env.INITIAL_ADMIN_EMAILS || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  for (const email of adminEmails) {
+    const existing = await db.collection('users').findOne({ email })
+    if (!existing) {
+      await db.collection('users').insertOne({
+        id: uuidv4(),
+        email,
+        name: email.split('@')[0],
+        role: 'admin',
+        status: 'active',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastLoginAt: null,
+        invitedBy: 'system',
+      })
+    } else if (existing.role !== 'admin' || existing.status !== 'active') {
+      await db.collection('users').updateOne(
+        { email },
+        { $set: { role: 'admin', status: 'active', updatedAt: new Date() } }
+      )
+    }
+  }
+  // Create indexes
+  try {
+    await db.collection('users').createIndex({ email: 1 }, { unique: true })
+    await db.collection('sessions').createIndex({ token: 1 }, { unique: true })
+    await db.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+    await db.collection('otps').createIndex({ email: 1 })
+    await db.collection('otps').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+  } catch {}
 }
 
 function handleCORS(response) {
@@ -140,8 +173,205 @@ async function handleRoute(request, { params }) {
   try {
     const db = await connectToMongo()
 
+    // ==== AUTH ROUTES (public) ====
+    // POST /api/auth/request-otp { email }
+    if (route === '/auth/request-otp' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const email = String(body.email || '').trim().toLowerCase()
+
+      if (!isAllowedEmail(email)) {
+        return handleCORS(NextResponse.json({ error: `Only @${ALLOWED_DOMAIN} email addresses are allowed.` }, { status: 400 }))
+      }
+
+      // Check user exists and is active (block revoked users). Auto-provision on first login.
+      let user = await db.collection('users').findOne({ email })
+      if (user && user.status === 'revoked') {
+        return handleCORS(NextResponse.json({ error: 'Your access has been revoked. Contact an admin.' }, { status: 403 }))
+      }
+      if (!user) {
+        // Auto-provision as regular user
+        user = {
+          id: uuidv4(),
+          email,
+          name: email.split('@')[0],
+          role: 'user',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lastLoginAt: null,
+          invitedBy: 'self',
+        }
+        await db.collection('users').insertOne(user)
+      }
+
+      // Rate limit: max 3 OTPs per email per 10 minutes
+      const recent = await db.collection('otps').countDocuments({
+        email,
+        createdAt: { $gte: new Date(Date.now() - 10 * 60 * 1000) },
+      })
+      if (recent >= 3) {
+        return handleCORS(NextResponse.json({ error: 'Too many attempts. Please wait a few minutes.' }, { status: 429 }))
+      }
+
+      // Invalidate previous OTPs for this email
+      await db.collection('otps').deleteMany({ email })
+
+      const code = generateOtp()
+      const codeHash = hashCode(code, email)
+      await db.collection('otps').insertOne({
+        id: uuidv4(),
+        email,
+        codeHash,
+        used: false,
+        attempts: 0,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      })
+
+      const mailResult = await sendOtpEmail(email, code)
+      // If SMTP not configured, expose the OTP in the response so the flow is testable.
+      const payload = { ok: true, sent: mailResult.sent }
+      if (mailResult.dev) payload.devOtp = code
+      return handleCORS(NextResponse.json(payload))
+    }
+
+    // POST /api/auth/verify-otp { email, otp }
+    if (route === '/auth/verify-otp' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const email = String(body.email || '').trim().toLowerCase()
+      const otp = String(body.otp || '').trim()
+      if (!isAllowedEmail(email) || !/^\d{6}$/.test(otp)) {
+        return handleCORS(NextResponse.json({ error: 'Invalid email or OTP.' }, { status: 400 }))
+      }
+      const record = await db.collection('otps').findOne({ email, used: false })
+      if (!record) return handleCORS(NextResponse.json({ error: 'No OTP requested. Request a new code.' }, { status: 400 }))
+      if (new Date(record.expiresAt) < new Date()) return handleCORS(NextResponse.json({ error: 'OTP expired. Request a new code.' }, { status: 400 }))
+      if (record.attempts >= 5) return handleCORS(NextResponse.json({ error: 'Too many wrong attempts. Request a new code.' }, { status: 429 }))
+
+      const provided = hashCode(otp, email)
+      if (provided !== record.codeHash) {
+        await db.collection('otps').updateOne({ _id: record._id }, { $inc: { attempts: 1 } })
+        return handleCORS(NextResponse.json({ error: 'Incorrect code.' }, { status: 400 }))
+      }
+
+      const user = await db.collection('users').findOne({ email })
+      if (!user || user.status !== 'active') {
+        return handleCORS(NextResponse.json({ error: 'Access revoked. Contact an admin.' }, { status: 403 }))
+      }
+
+      await db.collection('otps').updateOne({ _id: record._id }, { $set: { used: true } })
+
+      const token = generateToken()
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      await db.collection('sessions').insertOne({
+        id: uuidv4(),
+        token,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        createdAt: new Date(),
+        expiresAt,
+      })
+      await db.collection('users').updateOne({ id: user.id }, { $set: { lastLoginAt: new Date() } })
+
+      return handleCORS(NextResponse.json({
+        ok: true,
+        token,
+        expiresAt,
+        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      }))
+    }
+
+    // POST /api/auth/logout (requires auth)
+    if (route === '/auth/logout' && method === 'POST') {
+      const auth = request.headers.get('authorization') || ''
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : null
+      if (token) await db.collection('sessions').deleteOne({ token })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    // GET /api/auth/me
+    if (route === '/auth/me' && method === 'GET') {
+      const user = await getSessionUser(db, request)
+      if (!user) return handleCORS(NextResponse.json({ user: null }))
+      return handleCORS(NextResponse.json({
+        user: { id: user.id, email: user.email, name: user.name, role: user.role, status: user.status },
+      }))
+    }
+
+    // Health check (public)
     if ((route === '/' || route === '/root') && method === 'GET') {
       return handleCORS(NextResponse.json({ service: 'UCIP', ok: true }))
+    }
+
+    // ==== AUTH GUARD for everything below ====
+    const currentUser = await getSessionUser(db, request)
+    if (!currentUser) {
+      return handleCORS(NextResponse.json({ error: 'Unauthenticated' }, { status: 401 }))
+    }
+
+    // ==== ADMIN ROUTES ====
+    const requireAdmin = () => {
+      if (currentUser.role !== 'admin') {
+        return handleCORS(NextResponse.json({ error: 'Admin access required.' }, { status: 403 }))
+      }
+      return null
+    }
+
+    // GET /api/admin/users
+    if (route === '/admin/users' && method === 'GET') {
+      const err = requireAdmin(); if (err) return err
+      const users = await db.collection('users').find({}).sort({ createdAt: -1 }).toArray()
+      return handleCORS(NextResponse.json(users.map(clean)))
+    }
+    // POST /api/admin/users  { email, name?, role }
+    if (route === '/admin/users' && method === 'POST') {
+      const err = requireAdmin(); if (err) return err
+      const body = await request.json().catch(() => ({}))
+      const email = String(body.email || '').trim().toLowerCase()
+      const role = body.role === 'admin' ? 'admin' : 'user'
+      if (!isAllowedEmail(email)) {
+        return handleCORS(NextResponse.json({ error: `Only @${ALLOWED_DOMAIN} emails allowed.` }, { status: 400 }))
+      }
+      const existing = await db.collection('users').findOne({ email })
+      if (existing) return handleCORS(NextResponse.json({ error: 'User already exists.' }, { status: 400 }))
+      const doc = {
+        id: uuidv4(), email, name: body.name || email.split('@')[0], role, status: 'active',
+        createdAt: new Date(), updatedAt: new Date(), lastLoginAt: null, invitedBy: currentUser.email,
+      }
+      await db.collection('users').insertOne(doc)
+      return handleCORS(NextResponse.json(clean(doc)))
+    }
+    // PATCH /api/admin/users/:id  { role?, status?, name? }
+    if (route.startsWith('/admin/users/') && method === 'PATCH') {
+      const err = requireAdmin(); if (err) return err
+      const id = route.split('/').pop()
+      const body = await request.json().catch(() => ({}))
+      const upd = { updatedAt: new Date() }
+      if (body.role && ['admin', 'user'].includes(body.role)) upd.role = body.role
+      if (body.status && ['active', 'revoked'].includes(body.status)) upd.status = body.status
+      if (typeof body.name === 'string') upd.name = body.name
+      // Prevent self-lockout: an admin cannot demote/revoke themselves if they're the only admin
+      if (id === currentUser.id && (upd.role === 'user' || upd.status === 'revoked')) {
+        const admins = await db.collection('users').countDocuments({ role: 'admin', status: 'active' })
+        if (admins <= 1) return handleCORS(NextResponse.json({ error: 'Cannot lock out the last active admin.' }, { status: 400 }))
+      }
+      await db.collection('users').updateOne({ id }, { $set: upd })
+      // If revoking, kill their sessions
+      if (upd.status === 'revoked') await db.collection('sessions').deleteMany({ userId: id })
+      const updated = await db.collection('users').findOne({ id })
+      return handleCORS(NextResponse.json(clean(updated)))
+    }
+    // DELETE /api/admin/users/:id
+    if (route.startsWith('/admin/users/') && method === 'DELETE') {
+      const err = requireAdmin(); if (err) return err
+      const id = route.split('/').pop()
+      if (id === currentUser.id) {
+        return handleCORS(NextResponse.json({ error: 'You cannot delete yourself.' }, { status: 400 }))
+      }
+      await db.collection('users').deleteOne({ id })
+      await db.collection('sessions').deleteMany({ userId: id })
+      return handleCORS(NextResponse.json({ ok: true }))
     }
 
     // GET /api/universities
