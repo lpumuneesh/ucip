@@ -165,6 +165,7 @@ function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
 
 function ChangeRow({ c }) {
   const [open, setOpen] = useState(false)
+  const shortUrl = c.pageUrl ? c.pageUrl.replace(/^https?:\/\//, '').slice(0, 60) : null
   return (
     <div className="border border-white/5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] transition">
       <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3">
@@ -184,40 +185,55 @@ function ChangeRow({ c }) {
             )}
             <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
           </div>
-          <div className="text-xs text-zinc-500 flex items-center gap-2">
+          <div className="text-xs text-zinc-500 flex items-center gap-2 flex-wrap">
             <span className="uppercase tracking-wide">{c.type}</span>
             <span>•</span>
             <span>{new Date(c.detectedAt).toLocaleString()}</span>
+            {shortUrl && (
+              <>
+                <span>•</span>
+                <a href={c.pageUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 hover:underline">
+                  <ExternalLink className="h-3 w-3" />{shortUrl}
+                </a>
+              </>
+            )}
           </div>
         </div>
         <SeverityChip severity={c.severity} />
       </button>
       {open && (
-        <div className="px-3 pb-3 pt-1 grid md:grid-cols-2 gap-2 text-xs">
-          {c.before !== undefined && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2">
-              <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1 flex items-center gap-1"><Minus className="h-3 w-3" />Before</div>
-              <div className="text-zinc-300 break-words">{c.before || <em className="text-zinc-500">(empty)</em>}</div>
+        <div className="px-3 pb-3 pt-1 space-y-2 text-xs">
+          {c.pageUrl && (
+            <div className="text-[11px] text-zinc-500 break-all">
+              Full URL: <a href={c.pageUrl} target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">{c.pageUrl}</a>
             </div>
           )}
-          {c.after !== undefined && (
-            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2">
-              <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1"><Plus className="h-3 w-3" />After</div>
-              <div className="text-zinc-300 break-words">{c.after || <em className="text-zinc-500">(empty)</em>}</div>
-            </div>
-          )}
-          {c.added && c.added.length > 0 && (
-            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 md:col-span-2">
-              <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1">+ Added ({c.added.length})</div>
-              <div className="flex flex-wrap gap-1">{c.added.map((a, i) => <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px]">{a}</span>)}</div>
-            </div>
-          )}
-          {c.removed && c.removed.length > 0 && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2 md:col-span-2">
-              <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1">− Removed ({c.removed.length})</div>
-              <div className="flex flex-wrap gap-1">{c.removed.map((a, i) => <span key={i} className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-[11px]">{a}</span>)}</div>
-            </div>
-          )}
+          <div className="grid md:grid-cols-2 gap-2">
+            {c.before !== undefined && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2">
+                <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1 flex items-center gap-1"><Minus className="h-3 w-3" />Before</div>
+                <div className="text-zinc-300 break-words">{c.before || <em className="text-zinc-500">(empty)</em>}</div>
+              </div>
+            )}
+            {c.after !== undefined && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2">
+                <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1"><Plus className="h-3 w-3" />After</div>
+                <div className="text-zinc-300 break-words">{c.after || <em className="text-zinc-500">(empty)</em>}</div>
+              </div>
+            )}
+            {c.added && c.added.length > 0 && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 md:col-span-2">
+                <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1">+ Added ({c.added.length})</div>
+                <div className="flex flex-wrap gap-1">{c.added.map((a, i) => <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px]">{a}</span>)}</div>
+              </div>
+            )}
+            {c.removed && c.removed.length > 0 && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2 md:col-span-2">
+                <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1">− Removed ({c.removed.length})</div>
+                <div className="flex flex-wrap gap-1">{c.removed.map((a, i) => <span key={i} className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-[11px]">{a}</span>)}</div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -329,6 +345,192 @@ function AiReportView({ report }) {
           </div>
         </Glass>
       )}
+    </div>
+  )
+}
+
+function TrendsView({ universities }) {
+  const [trends, setTrends] = useState(null)
+  const [days, setDays] = useState(30)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    api(`/trends?days=${days}`).then(d => alive && setTrends(d)).catch(e => toast.error(e.message)).finally(() => alive && setLoading(false))
+    return () => { alive = false }
+  }, [days])
+
+  const seoLineData = useMemo(() => {
+    if (!trends) return []
+    // Build unified time axis: all snapshot timestamps sorted
+    const points = new Map() // timestamp -> { t, LPU:.., CU:.. }
+    for (const [code, series] of Object.entries(trends.seoSeries || {})) {
+      for (const p of series) {
+        const key = new Date(p.t).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        if (!points.has(key)) points.set(key, { t: key, ts: new Date(p.t).getTime() })
+        points.get(key)[code] = p.avg ?? p.home
+      }
+    }
+    return Array.from(points.values()).sort((a, b) => a.ts - b.ts)
+  }, [trends])
+
+  const changeVelocity = useMemo(() => trends?.changeByDay || [], [trends])
+  const perUniChanges = useMemo(() => {
+    if (!trends?.perUniChanges) return []
+    return Object.entries(trends.perUniChanges).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count)
+  }, [trends])
+  const severityData = useMemo(() => {
+    if (!trends?.severityCounts) return []
+    return Object.entries(trends.severityCounts).map(([name, value]) => ({ name, value })).filter(x => x.value > 0)
+  }, [trends])
+  const typeData = useMemo(() => {
+    if (!trends?.typeCounts) return []
+    return Object.entries(trends.typeCounts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+  }, [trends])
+
+  const UNI_COLORS = { LPU:'#E30613', CU:'#0057A0', SRM:'#004990', VIT:'#003B71', MANIPAL:'#F58220', STANFORD:'#8C1515', UPENN:'#011F5B', MASTERSUNION:'#a855f7' }
+  const SEV_COLORS = { critical:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#38bdf8' }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-xs text-zinc-500 mr-2">Range:</div>
+        {[7, 14, 30, 60, 90].map(d => (
+          <button key={d} onClick={() => setDays(d)} className={cx(
+            'text-xs px-3 py-1.5 rounded-lg border transition',
+            days === d ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-200' : 'bg-white/[0.02] border-white/10 text-zinc-400 hover:bg-white/5'
+          )}>{d}d</button>
+        ))}
+        <div className="ml-auto text-xs text-zinc-500">
+          {loading ? <Loader2 className="h-3 w-3 animate-spin inline" /> : `${trends?.totalSnapshots ?? 0} snapshots · ${trends?.totalChanges ?? 0} changes in window`}
+        </div>
+      </div>
+
+      <Glass className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-medium">SEO Score over time</div>
+            <div className="text-xs text-zinc-500">Avg SEO score per snapshot across all crawled pages</div>
+          </div>
+          <Badge variant="outline" className="border-white/10 text-zinc-400">{Object.keys(trends?.seoSeries || {}).length} unis</Badge>
+        </div>
+        <div className="h-72">
+          {seoLineData.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-zinc-500 text-sm">
+              <LineChartIcon className="h-8 w-8 mb-2 opacity-40" />
+              No snapshots in this window
+            </div>
+          ) : (
+            <ResponsiveContainer>
+              <LineChart data={seoLineData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                <XAxis dataKey="t" stroke="#71717a" fontSize={10} interval="preserveStartEnd" />
+                <YAxis domain={[0, 100]} stroke="#71717a" fontSize={11} />
+                <RTooltip contentStyle={{ background: '#18181b', border: '1px solid #ffffff20', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {Object.keys(trends?.seoSeries || {}).map(code => (
+                  <Line key={code} type="monotone" dataKey={code} stroke={UNI_COLORS[code] || '#8b5cf6'} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 5 }} connectNulls />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </Glass>
+
+      <div className="grid lg:grid-cols-3 gap-4">
+        <Glass className="p-5 lg:col-span-2">
+          <div className="text-sm font-medium mb-3">Change velocity per day</div>
+          <div className="h-64">
+            {changeVelocity.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-zinc-500 text-sm">No changes in this window</div>
+            ) : (
+              <ResponsiveContainer>
+                <AreaChart data={changeVelocity}>
+                  <defs>
+                    <linearGradient id="gvel" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#818cf8" stopOpacity={0.7} />
+                      <stop offset="100%" stopColor="#818cf8" stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                  <XAxis dataKey="day" stroke="#71717a" fontSize={11} />
+                  <YAxis stroke="#71717a" fontSize={11} allowDecimals={false} />
+                  <RTooltip contentStyle={{ background: '#18181b', border: '1px solid #ffffff20', borderRadius: 8, fontSize: 12 }} />
+                  <Area type="monotone" dataKey="total" stroke="#818cf8" strokeWidth={2} fill="url(#gvel)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Glass>
+
+        <Glass className="p-5">
+          <div className="text-sm font-medium mb-3">Severity mix</div>
+          <div className="h-64">
+            {severityData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-zinc-500 text-sm">No changes</div>
+            ) : (
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie data={severityData} dataKey="value" innerRadius={45} outerRadius={80} paddingAngle={4}>
+                    {severityData.map((e, i) => <Cell key={i} fill={SEV_COLORS[e.name] || '#71717a'} />)}
+                  </Pie>
+                  <RTooltip contentStyle={{ background: '#18181b', border: '1px solid #ffffff20', borderRadius: 8, fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Glass>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Glass className="p-5">
+          <div className="text-sm font-medium mb-3">Changes by university</div>
+          <div className="h-64">
+            {perUniChanges.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-zinc-500 text-sm">No changes</div>
+            ) : (
+              <ResponsiveContainer>
+                <BarChart data={perUniChanges} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                  <XAxis type="number" stroke="#71717a" fontSize={11} allowDecimals={false} />
+                  <YAxis type="category" dataKey="code" stroke="#71717a" fontSize={11} width={90} />
+                  <RTooltip contentStyle={{ background: '#18181b', border: '1px solid #ffffff20', borderRadius: 8, fontSize: 12 }} />
+                  <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                    {perUniChanges.map((e, i) => <Cell key={i} fill={UNI_COLORS[e.code] || '#8b5cf6'} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Glass>
+
+        <Glass className="p-5">
+          <div className="text-sm font-medium mb-3">Change types</div>
+          <div className="h-64">
+            {typeData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-zinc-500 text-sm">No changes</div>
+            ) : (
+              <ResponsiveContainer>
+                <BarChart data={typeData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                  <XAxis dataKey="name" stroke="#71717a" fontSize={11} angle={-20} textAnchor="end" height={60} />
+                  <YAxis stroke="#71717a" fontSize={11} allowDecimals={false} />
+                  <RTooltip contentStyle={{ background: '#18181b', border: '1px solid #ffffff20', borderRadius: 8, fontSize: 12 }} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="url(#gtyp)" />
+                  <defs>
+                    <linearGradient id="gtyp" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor="#a78bfa" />
+                      <stop offset="100%" stopColor="#7c3aed" />
+                    </linearGradient>
+                  </defs>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Glass>
+      </div>
     </div>
   )
 }
@@ -529,6 +731,7 @@ export default function App() {
             <TabsTrigger value="overview"><BarChart3 className="h-3.5 w-3.5 mr-1" />Overview</TabsTrigger>
             <TabsTrigger value="universities"><GraduationCap className="h-3.5 w-3.5 mr-1" />Universities</TabsTrigger>
             <TabsTrigger value="changes"><Activity className="h-3.5 w-3.5 mr-1" />Changes</TabsTrigger>
+            <TabsTrigger value="trends"><LineChartIcon className="h-3.5 w-3.5 mr-1" />Trends</TabsTrigger>
             <TabsTrigger value="logs"><FileText className="h-3.5 w-3.5 mr-1" />Crawler Logs</TabsTrigger>
           </TabsList>
 
@@ -628,6 +831,10 @@ export default function App() {
                 <div className="space-y-2">{changes.map(c => <ChangeRow key={c.id} c={c} />)}</div>
               )}
             </Glass>
+          </TabsContent>
+
+          <TabsContent value="trends" className="mt-4">
+            <TrendsView universities={unis} />
           </TabsContent>
 
           <TabsContent value="logs" className="mt-4">

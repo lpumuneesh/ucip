@@ -9,9 +9,11 @@ let client
 let db
 
 async function connectToMongo() {
-  if (!client) {
-    client = new MongoClient(process.env.MONGO_URL)
-    await client.connect()
+  if (!client || !db) {
+    if (!client) {
+      client = new MongoClient(process.env.MONGO_URL)
+      await client.connect()
+    }
     db = client.db(process.env.DB_NAME)
     await ensureSeed(db)
   }
@@ -83,16 +85,24 @@ async function crawlOneUniversity(db, uni) {
 
   // Store detected changes as individual documents
   if (result.ok && !diff.isFirstSnapshot && diff.changes.length > 0) {
-    const changeDocs = diff.changes.map(c => ({
-      id: uuidv4(),
-      universityId: uni.id,
-      universityCode: uni.code,
-      universityName: uni.name,
-      snapshotId,
-      previousSnapshotId: prev[0].id,
-      detectedAt: startedAt,
-      ...c,
-    }))
+    // Resolve page URL for each change from current snapshot's pages map
+    const pages = result.pages || {}
+    const changeDocs = diff.changes.map(c => {
+      const pageKey = c.page || 'home'
+      const p = pages[pageKey]
+      const pageUrl = p?.finalUrl || p?.url || (pageKey === 'site' ? uni.url : uni.url)
+      return {
+        id: uuidv4(),
+        universityId: uni.id,
+        universityCode: uni.code,
+        universityName: uni.name,
+        snapshotId,
+        previousSnapshotId: prev[0].id,
+        detectedAt: startedAt,
+        pageUrl,
+        ...c,
+      }
+    })
     await db.collection('changes').insertMany(changeDocs)
   }
 
@@ -308,6 +318,69 @@ async function handleRoute(request, { params }) {
         recentChanges: recentChanges.map(clean),
         recentLogs: recentLogs.map(clean),
         perUniChanges,
+      }))
+    }
+
+    // GET /api/trends?universityId=&days=30
+    if (route === '/trends' && method === 'GET') {
+      const { searchParams } = new URL(request.url)
+      const universityId = searchParams.get('universityId')
+      const days = Math.min(365, parseInt(searchParams.get('days') || '30'))
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+      const snapQuery = universityId ? { universityId, createdAt: { $gte: cutoff } } : { createdAt: { $gte: cutoff } }
+      const changeQuery = universityId ? { universityId, detectedAt: { $gte: cutoff } } : { detectedAt: { $gte: cutoff } }
+
+      const snaps = await db.collection('snapshots').find(snapQuery).sort({ createdAt: 1 }).toArray()
+      const changes = await db.collection('changes').find(changeQuery).sort({ detectedAt: 1 }).toArray()
+
+      // Build per-snapshot data points and per-day aggregates
+      const seoSeries = {}    // universityCode -> [{t, home, avg, pageCount}]
+      const changeByDay = {}  // day (YYYY-MM-DD) -> { day, [code]: count, total }
+
+      for (const s of snaps) {
+        const code = s.universityCode
+        if (!seoSeries[code]) seoSeries[code] = []
+        seoSeries[code].push({
+          t: s.createdAt,
+          snapshotId: s.id,
+          home: s.data?.seo?.seoScore ?? null,
+          avg: s.data?.avgSeoScore ?? s.data?.seo?.seoScore ?? null,
+          pageCount: s.data?.pageCount ?? 1,
+        })
+      }
+
+      for (const c of changes) {
+        const d = new Date(c.detectedAt)
+        const day = d.toISOString().slice(0, 10)
+        if (!changeByDay[day]) changeByDay[day] = { day, total: 0 }
+        changeByDay[day][c.universityCode] = (changeByDay[day][c.universityCode] || 0) + 1
+        changeByDay[day].total += 1
+      }
+
+      // Severity mix
+      const severityCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+      for (const c of changes) severityCounts[c.severity] = (severityCounts[c.severity] || 0) + 1
+
+      // Type mix
+      const typeCounts = {}
+      for (const c of changes) typeCounts[c.type] = (typeCounts[c.type] || 0) + 1
+
+      // Per-university totals
+      const perUni = {}
+      for (const c of changes) {
+        perUni[c.universityCode] = (perUni[c.universityCode] || 0) + 1
+      }
+
+      return handleCORS(NextResponse.json({
+        rangeDays: days,
+        totalSnapshots: snaps.length,
+        totalChanges: changes.length,
+        seoSeries,
+        changeByDay: Object.values(changeByDay).sort((a, b) => a.day.localeCompare(b.day)),
+        severityCounts,
+        typeCounts,
+        perUniChanges: perUni,
       }))
     }
 
