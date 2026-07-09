@@ -220,7 +220,8 @@ function formatEvidenceText(c) {
 
 function ChangeIcon({ type }) {
   const cls = 'h-4 w-4'
-  if (type === 'title' || type === 'description') return <FileText className={cx(cls, 'text-blue-300')} />
+  if (type === 'title' || type === 'description' || type === 'og_title') return <FileText className={cx(cls, 'text-blue-300')} />
+  if (type === 'hero_image') return <Eye className={cx(cls, 'text-pink-300')} />
   if (type === 'navigation') return <Layers className={cx(cls, 'text-purple-300')} />
   if (type === 'ctas') return <Zap className={cx(cls, 'text-yellow-300')} />
   if (type === 'new_pages' || type === 'removed_pages') return <Layers className={cx(cls, 'text-emerald-300')} />
@@ -228,18 +229,38 @@ function ChangeIcon({ type }) {
   return <Activity className={cx(cls, 'text-orange-300')} />
 }
 
+function isImageUrl(s) {
+  return typeof s === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?.*)?$/i.test(s)
+}
+
 function EvidenceBody({ c, compact }) {
+  const beforeIsImg = isImageUrl(c.before)
+  const afterIsImg = isImageUrl(c.after)
   return (
     <div className={cx('space-y-2', compact && 'text-xs')}>
       {(c.before !== undefined || c.after !== undefined) && (
         <div className="grid gap-2 md:grid-cols-2">
           <div className="rounded-lg border border-red-500/25 bg-red-500/[0.06] p-2.5">
             <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1 flex items-center gap-1"><Minus className="h-3 w-3" />Before (previous crawl)</div>
-            <div className="text-zinc-100 break-words leading-relaxed">{c.before || <em className="text-zinc-500">(empty)</em>}</div>
+            {beforeIsImg ? (
+              <div className="space-y-1">
+                <img src={c.before} alt="before" className="max-h-40 w-full object-contain rounded-md border border-white/10 bg-black/40" onError={e => { e.currentTarget.style.display='none' }} />
+                <a href={c.before} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-[10px] text-red-300 hover:text-red-200 hover:underline break-all">{c.before}</a>
+              </div>
+            ) : (
+              <div className="text-zinc-100 break-words leading-relaxed">{c.before || <em className="text-zinc-500">(empty)</em>}</div>
+            )}
           </div>
           <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-2.5">
             <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1"><Plus className="h-3 w-3" />After (current)</div>
-            <div className="text-zinc-100 break-words leading-relaxed">{c.after || <em className="text-zinc-500">(empty)</em>}</div>
+            {afterIsImg ? (
+              <div className="space-y-1">
+                <img src={c.after} alt="after" className="max-h-40 w-full object-contain rounded-md border border-white/10 bg-black/40" onError={e => { e.currentTarget.style.display='none' }} />
+                <a href={c.after} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-[10px] text-emerald-300 hover:text-emerald-200 hover:underline break-all">{c.after}</a>
+              </div>
+            ) : (
+              <div className="text-zinc-100 break-words leading-relaxed">{c.after || <em className="text-zinc-500">(empty)</em>}</div>
+            )}
           </div>
         </div>
       )}
@@ -316,6 +337,43 @@ function ChangeHoverPreview({ c }) {
   )
 }
 
+function ChangeUrlEvidence({ c, shortUrl }) {
+  // Compact, presentation-ready evidence card showed when hovering the URL chip
+  return (
+    <div className="w-[540px] max-w-[92vw] p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="h-7 w-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+          <ChangeIcon type={c.type} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-white flex items-center gap-2">
+            <span className="truncate">{c.universityName}</span>
+            {c.page && c.page !== 'site' && (
+              <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
+            )}
+            <SeverityChip severity={c.severity} />
+          </div>
+          <div className="text-[11px] text-zinc-500">
+            <span className="uppercase tracking-wide">{c.type}</span> · {relTime(c.detectedAt)}
+          </div>
+        </div>
+      </div>
+      {c.pageUrl && (
+        <a href={c.pageUrl} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-indigo-300 hover:text-indigo-200 hover:underline mb-2">
+          <ExternalLink className="h-3 w-3 inline mr-1" />{c.pageUrl}
+        </a>
+      )}
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1">
+          <FileText className="h-3 w-3" />Evidence — what changed
+        </div>
+        <EvidenceBody c={c} compact />
+      </div>
+      <div className="text-[10px] text-zinc-600 mt-2 italic">Click row for full evidence · Copy for management report</div>
+    </div>
+  )
+}
+
 function ChangeRow({ c }) {
   const [open, setOpen] = useState(false)
   const shortUrl = c.pageUrl ? c.pageUrl.replace(/^https?:\/\//, '').slice(0, 60) : null
@@ -328,54 +386,59 @@ function ChangeRow({ c }) {
 
   return (
     <div className="border border-white/5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10 transition">
-      <HoverCard openDelay={80} closeDelay={100}>
-        <HoverCardTrigger asChild>
-          <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3 rounded-xl">
-            <div className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
-              <ChangeIcon type={c.type} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium flex items-center gap-2">
-                <span className="truncate">{c.universityName}</span>
-                {c.page && c.page !== 'site' && (
-                  <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
-                )}
-                <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
-              </div>
-              <div className="text-xs text-zinc-500 flex items-center gap-2 flex-wrap">
-                <span className="uppercase tracking-wide">{c.type}</span>
+      <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3 rounded-xl">
+        <div className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+          <ChangeIcon type={c.type} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium flex items-center gap-2">
+            <span className="truncate">{c.universityName}</span>
+            {c.page && c.page !== 'site' && (
+              <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
+            )}
+            <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
+          </div>
+          <div className="text-xs text-zinc-500 flex items-center gap-2 flex-wrap">
+            <span className="uppercase tracking-wide">{c.type}</span>
+            <span>·</span>
+            <span>{relTime(c.detectedAt)}</span>
+            {shortUrl && (
+              <>
                 <span>·</span>
-                <span>{relTime(c.detectedAt)}</span>
-                {shortUrl && (
-                  <>
-                    <span>·</span>
-                    <a href={c.pageUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 hover:underline">
-                      <ExternalLink className="h-3 w-3" />{shortUrl}
+                <HoverCard openDelay={80} closeDelay={100}>
+                  <HoverCardTrigger asChild>
+                    <a
+                      href={c.pageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-indigo-500/40 bg-indigo-500/10 text-indigo-200 hover:text-white hover:bg-indigo-500/20 transition"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      <span className="max-w-[280px] truncate">{shortUrl}</span>
+                      <span className="text-[9px] uppercase tracking-wider text-indigo-300/80 ml-1">evidence</span>
                     </a>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="hidden sm:flex items-center gap-2 text-[10px] text-zinc-500 shrink-0">
-              <Eye className="h-3 w-3" /><span>hover for evidence</span>
-            </div>
-            <SeverityChip severity={c.severity} />
-          </button>
-        </HoverCardTrigger>
-        <HoverCardContent
-          side="bottom"
-          align="start"
-          sideOffset={8}
-          collisionPadding={16}
-          avoidCollisions
-          className="w-[560px] max-w-[92vw] p-3 bg-zinc-950/95 border border-indigo-500/30 backdrop-blur-xl shadow-2xl shadow-indigo-950/50 z-50"
-        >
-          <ChangeHoverPreview c={c} />
-        </HoverCardContent>
-      </HoverCard>
+                  </HoverCardTrigger>
+                  <HoverCardContent
+                    side="bottom"
+                    align="start"
+                    sideOffset={8}
+                    collisionPadding={16}
+                    avoidCollisions
+                    className="w-auto p-0 bg-zinc-950/95 border border-indigo-500/30 backdrop-blur-xl shadow-2xl shadow-indigo-950/50 z-50"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <ChangeUrlEvidence c={c} shortUrl={shortUrl} />
+                  </HoverCardContent>
+                </HoverCard>
+              </>
+            )}
+          </div>
+        </div>
+        <SeverityChip severity={c.severity} />
+      </button>
       {open && (
         <div className="px-3 pb-3 pt-2 space-y-3 border-t border-white/5 bg-white/[0.01]">
-          {/* Management-ready evidence header */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <Badge variant="outline" className="border-indigo-500/40 bg-indigo-500/10 text-indigo-200 text-[10px] uppercase">Evidence</Badge>
             {c.pageUrl && (
