@@ -22,6 +22,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { toast } from 'sonner'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid,
@@ -182,101 +183,220 @@ function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
   )
 }
 
+function relTime(d) {
+  const now = Date.now(); const t = new Date(d).getTime(); const diff = Math.max(1, now - t) / 1000
+  if (diff < 60) return `${Math.round(diff)}s ago`
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`
+  if (diff < 86400) return `${Math.round(diff/3600)}h ago`
+  return `${Math.round(diff/86400)}d ago`
+}
+
+function formatEvidenceText(c) {
+  const lines = []
+  lines.push(`## Change detected: ${c.type} on ${c.universityName}${c.page && c.page !== 'site' ? ` (${c.page})` : ''}`)
+  lines.push(`Detected: ${new Date(c.detectedAt).toLocaleString()}  |  Severity: ${c.severity}`)
+  if (c.pageUrl) lines.push(`Source URL: ${c.pageUrl}`)
+  lines.push('')
+  if (c.before !== undefined || c.after !== undefined) {
+    lines.push(`BEFORE:\n  ${c.before || '(empty)'}\n`)
+    lines.push(`AFTER:\n  ${c.after || '(empty)'}`)
+  }
+  if (c.added && c.added.length) {
+    lines.push(`\n+ ADDED (${c.added.length}):`)
+    for (const a of c.added) {
+      const url = c.addedUrls?.[a]
+      lines.push(url ? `  + ${a} — ${url}` : `  + ${a}`)
+    }
+  }
+  if (c.removed && c.removed.length) {
+    lines.push(`\n- REMOVED (${c.removed.length}):`)
+    for (const a of c.removed) {
+      const url = c.removedUrls?.[a]
+      lines.push(url ? `  - ${a} — ${url}` : `  - ${a}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+function ChangeIcon({ type }) {
+  const cls = 'h-4 w-4'
+  if (type === 'title' || type === 'description') return <FileText className={cx(cls, 'text-blue-300')} />
+  if (type === 'navigation') return <Layers className={cx(cls, 'text-purple-300')} />
+  if (type === 'ctas') return <Zap className={cx(cls, 'text-yellow-300')} />
+  if (type === 'new_pages' || type === 'removed_pages') return <Layers className={cx(cls, 'text-emerald-300')} />
+  if (type?.startsWith('h')) return <ArrowUpRight className={cx(cls, 'text-emerald-300')} />
+  return <Activity className={cx(cls, 'text-orange-300')} />
+}
+
+function EvidenceBody({ c, compact }) {
+  return (
+    <div className={cx('space-y-2', compact && 'text-xs')}>
+      {(c.before !== undefined || c.after !== undefined) && (
+        <div className="grid gap-2 md:grid-cols-2">
+          <div className="rounded-lg border border-red-500/25 bg-red-500/[0.06] p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1 flex items-center gap-1"><Minus className="h-3 w-3" />Before (previous crawl)</div>
+            <div className="text-zinc-100 break-words leading-relaxed">{c.before || <em className="text-zinc-500">(empty)</em>}</div>
+          </div>
+          <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1"><Plus className="h-3 w-3" />After (current)</div>
+            <div className="text-zinc-100 break-words leading-relaxed">{c.after || <em className="text-zinc-500">(empty)</em>}</div>
+          </div>
+        </div>
+      )}
+      {c.added && c.added.length > 0 && (
+        <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-2.5">
+          <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1.5">+ Added ({c.added.length})</div>
+          <div className="flex flex-wrap gap-1.5">
+            {c.added.map((a, i) => {
+              const url = c.addedUrls?.[a]
+              return url ? (
+                <a key={i} href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 rounded-md text-[11px] text-emerald-50 hover:text-white transition">
+                  <ExternalLink className="h-2.5 w-2.5" /><span className="font-medium">{a}</span>
+                  <span className="text-emerald-300/80 truncate max-w-[240px]">— {url.replace(/^https?:\/\//,'')}</span>
+                </a>
+              ) : (
+                <span key={i} className="px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/30 rounded-md text-[11px] text-emerald-50">{a}</span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {c.removed && c.removed.length > 0 && (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/[0.06] p-2.5">
+          <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1.5">− Removed ({c.removed.length})</div>
+          <div className="flex flex-wrap gap-1.5">
+            {c.removed.map((a, i) => {
+              const url = c.removedUrls?.[a]
+              return url ? (
+                <a key={i} href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/15 border border-red-500/40 hover:bg-red-500/25 rounded-md text-[11px] text-red-50 hover:text-white transition">
+                  <ExternalLink className="h-2.5 w-2.5" /><span className="font-medium line-through">{a}</span>
+                  <span className="text-red-300/80 truncate max-w-[240px]">— {url.replace(/^https?:\/\//,'')}</span>
+                </a>
+              ) : (
+                <span key={i} className="px-2 py-0.5 bg-red-500/15 border border-red-500/30 rounded-md text-[11px] text-red-50 line-through">{a}</span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChangeHoverPreview({ c }) {
+  return (
+    <div className="w-[520px] max-h-[420px] overflow-y-auto p-1">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+          <ChangeIcon type={c.type} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-white flex items-center gap-2">
+            <span className="truncate">{c.universityName}</span>
+            {c.page && c.page !== 'site' && (
+              <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
+            )}
+          </div>
+          <div className="text-[11px] text-zinc-500 flex items-center gap-1.5">
+            <span className="uppercase tracking-wide">{c.type}</span>
+            <span>·</span>
+            <span>{relTime(c.detectedAt)}</span>
+            <SeverityChip severity={c.severity} />
+          </div>
+        </div>
+      </div>
+      {c.pageUrl && (
+        <a href={c.pageUrl} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-indigo-300 hover:text-indigo-200 hover:underline mb-2">
+          <ExternalLink className="h-3 w-3 inline mr-1" />{c.pageUrl}
+        </a>
+      )}
+      <EvidenceBody c={c} compact />
+      <div className="text-[10px] text-zinc-600 mt-2 italic">Click row to expand · management-ready evidence view</div>
+    </div>
+  )
+}
+
 function ChangeRow({ c }) {
   const [open, setOpen] = useState(false)
   const shortUrl = c.pageUrl ? c.pageUrl.replace(/^https?:\/\//, '').slice(0, 60) : null
+
+  function copyEvidence() {
+    navigator.clipboard.writeText(formatEvidenceText(c))
+      .then(() => toast.success('Evidence copied — paste into your report'))
+      .catch(() => toast.error('Copy failed'))
+  }
+
   return (
-    <div className="border border-white/5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] transition">
-      <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3">
-        <div className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
-          {c.type === 'title' || c.type === 'description' ? <FileText className="h-4 w-4 text-blue-300" /> :
-           c.type === 'navigation' ? <Layers className="h-4 w-4 text-purple-300" /> :
-           c.type === 'ctas' ? <Zap className="h-4 w-4 text-yellow-300" /> :
-           c.type === 'new_pages' || c.type === 'removed_pages' ? <Layers className="h-4 w-4 text-emerald-300" /> :
-           c.type?.startsWith('h') ? <ArrowUpRight className="h-4 w-4 text-emerald-300" /> :
-           <Activity className="h-4 w-4 text-orange-300" />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium flex items-center gap-2">
-            <span className="truncate">{c.universityName}</span>
-            {c.page && c.page !== 'site' && (
-              <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
-            )}
-            <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
-          </div>
-          <div className="text-xs text-zinc-500 flex items-center gap-2 flex-wrap">
-            <span className="uppercase tracking-wide">{c.type}</span>
-            <span>•</span>
-            <span>{new Date(c.detectedAt).toLocaleString()}</span>
-            {shortUrl && (
-              <>
-                <span>•</span>
-                <a href={c.pageUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 hover:underline">
-                  <ExternalLink className="h-3 w-3" />{shortUrl}
-                </a>
-              </>
-            )}
-          </div>
-        </div>
-        <SeverityChip severity={c.severity} />
-      </button>
-      {open && (
-        <div className="px-3 pb-3 pt-1 space-y-2 text-xs">
-          {c.pageUrl && (
-            <div className="text-[11px] text-zinc-500 break-all">
-              Full URL: <a href={c.pageUrl} target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">{c.pageUrl}</a>
+    <div className="border border-white/5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10 transition">
+      <HoverCard openDelay={200} closeDelay={80}>
+        <HoverCardTrigger asChild>
+          <button onClick={() => setOpen(!open)} className="w-full text-left p-3 flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+              <ChangeIcon type={c.type} />
             </div>
-          )}
-          <div className="grid md:grid-cols-2 gap-2">
-            {c.before !== undefined && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1 flex items-center gap-1"><Minus className="h-3 w-3" />Before</div>
-                <div className="text-zinc-300 break-words">{c.before || <em className="text-zinc-500">(empty)</em>}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium flex items-center gap-2">
+                <span className="truncate">{c.universityName}</span>
+                {c.page && c.page !== 'site' && (
+                  <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
+                )}
+                <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
               </div>
-            )}
-            {c.after !== undefined && (
-              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1"><Plus className="h-3 w-3" />After</div>
-                <div className="text-zinc-300 break-words">{c.after || <em className="text-zinc-500">(empty)</em>}</div>
+              <div className="text-xs text-zinc-500 flex items-center gap-2 flex-wrap">
+                <span className="uppercase tracking-wide">{c.type}</span>
+                <span>·</span>
+                <span>{relTime(c.detectedAt)}</span>
+                {shortUrl && (
+                  <>
+                    <span>·</span>
+                    <a href={c.pageUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 hover:underline">
+                      <ExternalLink className="h-3 w-3" />{shortUrl}
+                    </a>
+                  </>
+                )}
               </div>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 text-[10px] text-zinc-500 shrink-0">
+              <Eye className="h-3 w-3" /><span>hover</span>
+            </div>
+            <SeverityChip severity={c.severity} />
+          </button>
+        </HoverCardTrigger>
+        <HoverCardContent side="right" align="start" className="w-auto max-w-[540px] p-3 bg-zinc-950/95 border-white/10 backdrop-blur-xl shadow-2xl">
+          <ChangeHoverPreview c={c} />
+        </HoverCardContent>
+      </HoverCard>
+      {open && (
+        <div className="px-3 pb-3 pt-2 space-y-3 border-t border-white/5 bg-white/[0.01]">
+          {/* Management-ready evidence header */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Badge variant="outline" className="border-indigo-500/40 bg-indigo-500/10 text-indigo-200 text-[10px] uppercase">Evidence</Badge>
+            {c.pageUrl && (
+              <a href={c.pageUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-300 hover:text-indigo-200 hover:underline break-all">
+                <ExternalLink className="h-3 w-3 inline mr-1" />{c.pageUrl}
+              </a>
             )}
-            {c.added && c.added.length > 0 && (
-              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 md:col-span-2">
-                <div className="text-[10px] uppercase tracking-wider text-emerald-300 mb-1">+ Added ({c.added.length})</div>
-                <div className="flex flex-wrap gap-1">
-                  {c.added.map((a, i) => {
-                    const url = c.addedUrls?.[a]
-                    return url ? (
-                      <a key={i} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 rounded text-[11px] text-emerald-100 hover:text-white transition">
-                        <ExternalLink className="h-2.5 w-2.5" /><span>{a}</span>
-                        <span className="text-emerald-400/70 truncate max-w-[240px]">— {url.replace(/^https?:\/\//,'')}</span>
-                      </a>
-                    ) : (
-                      <span key={i} className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px]">{a}</span>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-            {c.removed && c.removed.length > 0 && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2 md:col-span-2">
-                <div className="text-[10px] uppercase tracking-wider text-red-300 mb-1">− Removed ({c.removed.length})</div>
-                <div className="flex flex-wrap gap-1">
-                  {c.removed.map((a, i) => {
-                    const url = c.removedUrls?.[a]
-                    return url ? (
-                      <a key={i} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 rounded text-[11px] text-red-100 hover:text-white transition">
-                        <ExternalLink className="h-2.5 w-2.5" /><span>{a}</span>
-                        <span className="text-red-400/70 truncate max-w-[240px]">— {url.replace(/^https?:\/\//,'')}</span>
-                      </a>
-                    ) : (
-                      <span key={i} className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-[11px]">{a}</span>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+            <div className="ml-auto flex gap-1">
+              <Button size="sm" variant="ghost" onClick={copyEvidence} className="h-7 text-zinc-300 hover:text-white hover:bg-white/10 text-xs">
+                <FileText className="h-3.5 w-3.5 mr-1" />Copy evidence
+              </Button>
+              {c.pageUrl && (
+                <a href={c.pageUrl} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="ghost" className="h-7 text-zinc-300 hover:text-white hover:bg-white/10 text-xs">
+                    <ExternalLink className="h-3.5 w-3.5 mr-1" />Open page
+                  </Button>
+                </a>
+              )}
+            </div>
           </div>
+          <div className="text-[11px] text-zinc-500">
+            <span className="uppercase tracking-wider">{c.type}</span>
+            <span className="mx-2">·</span>
+            <span>{new Date(c.detectedAt).toLocaleString()}</span>
+            <span className="mx-2">·</span>
+            <span>severity: <span className="capitalize text-zinc-300">{c.severity}</span></span>
+          </div>
+          <EvidenceBody c={c} />
         </div>
       )}
     </div>
