@@ -677,6 +677,60 @@ async function handleRoute(request, { params }) {
       }))
     }
 
+    // GET /api/pagespeed?url=... — Google PageSpeed Insights (Core Web Vitals + Lighthouse)
+    if (route === '/pagespeed' && method === 'GET') {
+      const { searchParams } = new URL(request.url)
+      const target = searchParams.get('url')
+      const strategy = searchParams.get('strategy') || 'mobile'
+      if (!target) return handleCORS(NextResponse.json({ error: 'url required' }, { status: 400 }))
+      const psUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed')
+      psUrl.searchParams.set('url', target)
+      psUrl.searchParams.set('strategy', strategy)
+      for (const c of ['performance','seo','accessibility','best-practices']) psUrl.searchParams.append('category', c)
+      if (process.env.PAGESPEED_API_KEY) psUrl.searchParams.set('key', process.env.PAGESPEED_API_KEY)
+      try {
+        const res = await fetch(psUrl.toString(), { signal: AbortSignal.timeout(45000) })
+        if (!res.ok) {
+          const txt = await res.text()
+          return handleCORS(NextResponse.json({ error: `PageSpeed API ${res.status}: ${txt.slice(0,200)}` }, { status: res.status }))
+        }
+        const data = await res.json()
+        const lh = data.lighthouseResult || {}
+        const cats = lh.categories || {}
+        const audits = lh.audits || {}
+        const num = (k) => audits[k]?.numericValue
+        const disp = (k) => audits[k]?.displayValue
+        const summary = {
+          fetchTime: lh.fetchTime,
+          strategy,
+          finalUrl: lh.finalUrl,
+          scores: {
+            performance: Math.round((cats.performance?.score || 0) * 100),
+            accessibility: Math.round((cats.accessibility?.score || 0) * 100),
+            bestPractices: Math.round((cats['best-practices']?.score || 0) * 100),
+            seo: Math.round((cats.seo?.score || 0) * 100),
+          },
+          coreWebVitals: {
+            lcp: { value: num('largest-contentful-paint'), display: disp('largest-contentful-paint') },
+            cls: { value: num('cumulative-layout-shift'), display: disp('cumulative-layout-shift') },
+            fcp: { value: num('first-contentful-paint'), display: disp('first-contentful-paint') },
+            tbt: { value: num('total-blocking-time'), display: disp('total-blocking-time') },
+            si:  { value: num('speed-index'), display: disp('speed-index') },
+            inp: { value: num('interactive'), display: disp('interactive') },
+          },
+          opportunities: (lh.categories?.performance?.auditRefs || [])
+            .filter(a => a.group === 'load-opportunities')
+            .map(a => audits[a.id])
+            .filter(a => a && a.score !== null && a.score < 0.9)
+            .slice(0, 8)
+            .map(a => ({ id: a.id, title: a.title, description: a.description, displayValue: a.displayValue, savingsMs: a.details?.overallSavingsMs })),
+        }
+        return handleCORS(NextResponse.json(summary))
+      } catch (e) {
+        return handleCORS(NextResponse.json({ error: 'PageSpeed fetch failed: ' + e.message }, { status: 500 }))
+      }
+    }
+
     return handleCORS(NextResponse.json({ error: `Route ${route} not found` }, { status: 404 }))
   } catch (error) {
     console.error('API Error:', error)

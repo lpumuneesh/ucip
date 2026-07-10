@@ -125,6 +125,133 @@ function KpiCard({ icon: Icon, label, value, sub, tint = 'from-indigo-500/20 to-
   )
 }
 
+function PageSpeedPanel({ url }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [strategy, setStrategy] = useState('mobile')
+
+  async function run() {
+    setLoading(true); setError(null); setData(null)
+    try {
+      const r = await api(`/pagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}`)
+      setData(r)
+    } catch (e) {
+      setError(e.message)
+    } finally { setLoading(false) }
+  }
+
+  const scoreColor = s => s >= 90 ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10' :
+                          s >= 50 ? 'text-yellow-300 border-yellow-500/40 bg-yellow-500/10' :
+                                    'text-red-300 border-red-500/40 bg-red-500/10'
+
+  return (
+    <div className="space-y-4">
+      <Glass className="p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium">Google PageSpeed Insights (Lighthouse + Core Web Vitals)</div>
+            <div className="text-xs text-zinc-500 truncate">Testing: {url}</div>
+          </div>
+          <Select value={strategy} onValueChange={setStrategy}>
+            <SelectTrigger className="w-28 h-8 bg-white/5 border-white/10 text-white text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="mobile">Mobile</SelectItem><SelectItem value="desktop">Desktop</SelectItem></SelectContent>
+          </Select>
+          <Button size="sm" onClick={run} disabled={loading} className="bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md">
+            {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
+            Run PageSpeed
+          </Button>
+        </div>
+      </Glass>
+
+      {loading && (
+        <Glass className="p-6 text-center">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-indigo-400" />
+          <div className="text-sm text-zinc-400">Running Lighthouse via Google PageSpeed API — this takes 20–40 seconds…</div>
+        </Glass>
+      )}
+
+      {error && (
+        <Glass className="p-4 border-red-500/30 bg-red-500/5">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <div className="font-medium text-red-200">PageSpeed API error</div>
+              <div className="text-xs text-red-300/80 mt-1 break-words">{error}</div>
+              {error.includes('429') || error.toLowerCase().includes('quota') ? (
+                <div className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                  The public/anonymous quota is exhausted. To use PageSpeed reliably, get a free API key from{' '}
+                  <a href="https://developers.google.com/speed/docs/insights/v5/get-started" target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">Google PageSpeed Insights docs</a>
+                  {' '}and add <code className="bg-white/10 px-1 rounded">PAGESPEED_API_KEY=&lt;your key&gt;</code> to <code>/app/.env</code>, then restart. Free tier: 25,000 requests/day.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </Glass>
+      )}
+
+      {data && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Performance', v: data.scores.performance },
+              { label: 'Accessibility', v: data.scores.accessibility },
+              { label: 'Best Practices', v: data.scores.bestPractices },
+              { label: 'SEO', v: data.scores.seo },
+            ].map(s => (
+              <Glass key={s.label} className={cx('p-4 border', scoreColor(s.v))}>
+                <div className="text-[10px] uppercase tracking-wider opacity-80">{s.label}</div>
+                <div className="text-3xl font-semibold tabular-nums mt-1">{s.v}<span className="text-sm opacity-60">/100</span></div>
+              </Glass>
+            ))}
+          </div>
+
+          <Glass className="p-4">
+            <div className="text-sm font-medium mb-3 flex items-center gap-2"><Activity className="h-4 w-4 text-indigo-400" />Core Web Vitals ({data.strategy})</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+              {[
+                ['LCP', 'Largest Contentful Paint', data.coreWebVitals.lcp, 2500],
+                ['CLS', 'Cumulative Layout Shift', data.coreWebVitals.cls, 0.1],
+                ['FCP', 'First Contentful Paint', data.coreWebVitals.fcp, 1800],
+                ['TBT', 'Total Blocking Time', data.coreWebVitals.tbt, 200],
+                ['SI',  'Speed Index', data.coreWebVitals.si, 3400],
+                ['INP', 'Interactive', data.coreWebVitals.inp, 3800],
+              ].map(([k, name, m, threshold]) => (
+                <div key={k} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">{k}</div>
+                    <div className={cx('text-xs font-medium', m?.value && m.value <= threshold ? 'text-emerald-300' : 'text-orange-300')}>
+                      {m?.display || '—'}
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-zinc-400 mt-1">{name}</div>
+                </div>
+              ))}
+            </div>
+          </Glass>
+
+          {data.opportunities && data.opportunities.length > 0 && (
+            <Glass className="p-4">
+              <div className="text-sm font-medium mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-yellow-400" />Top Optimization Opportunities</div>
+              <div className="space-y-2">
+                {data.opportunities.map((o, i) => (
+                  <div key={i} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm text-white flex-1">{o.title}</div>
+                      {o.savingsMs && <Badge variant="outline" className="text-[10px] border-emerald-500/30 bg-emerald-500/10 text-emerald-300 shrink-0">Save ~{Math.round(o.savingsMs)}ms</Badge>}
+                    </div>
+                    {o.description && <div className="text-[11px] text-zinc-400 mt-1" dangerouslySetInnerHTML={{ __html: o.description.replace(/<[^>]+>/g, '').slice(0, 200) }} />}
+                  </div>
+                ))}
+              </div>
+            </Glass>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function SeoAuditDialog({ universityId, open, onClose }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -211,6 +338,9 @@ function SeoAuditDialog({ universityId, open, onClose }) {
                   </div>
                 ))}
               </Glass>
+            </TabsContent>
+            <TabsContent value="pagespeed" className="mt-4">
+              <PageSpeedPanel url={data?.university?.url || ''} />
             </TabsContent>
           </Tabs>
         )}
