@@ -118,8 +118,8 @@ async function crawlOneUniversity(db, uni) {
 
   // Store detected changes as individual documents
   if (result.ok && !diff.isFirstSnapshot && diff.changes.length > 0) {
-    // Resolve page URL for each change from current snapshot's pages map
     const pages = result.pages || {}
+    const prevSnapshotDate = prev[0].createdAt
     const changeDocs = diff.changes.map(c => {
       const pageKey = c.page || 'home'
       const p = pages[pageKey]
@@ -132,6 +132,7 @@ async function crawlOneUniversity(db, uni) {
         snapshotId,
         previousSnapshotId: prev[0].id,
         detectedAt: startedAt,
+        previousSnapshotDate: prevSnapshotDate,
         pageUrl,
         ...c,
       }

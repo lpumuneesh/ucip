@@ -224,10 +224,31 @@ function ChangeIcon({ type }) {
   if (type === 'hero_image') return <Eye className={cx(cls, 'text-pink-300')} />
   if (type === 'navigation') return <Layers className={cx(cls, 'text-purple-300')} />
   if (type === 'ctas') return <Zap className={cx(cls, 'text-yellow-300')} />
-  if (type === 'new_pages' || type === 'removed_pages') return <Layers className={cx(cls, 'text-emerald-300')} />
+  if (type === 'new_pages') return <Plus className={cx(cls, 'text-emerald-300')} />
+  if (type === 'removed_pages') return <Minus className={cx(cls, 'text-red-300')} />
+  if (type === 'page_url_changed') return <ArrowUpRight className={cx(cls, 'text-cyan-300')} />
   if (type?.startsWith('h')) return <ArrowUpRight className={cx(cls, 'text-emerald-300')} />
   return <Activity className={cx(cls, 'text-orange-300')} />
 }
+
+// Human-friendly labels for change types
+const CHANGE_TYPE_LABELS = {
+  title: 'Page title changed',
+  description: 'Meta description changed',
+  hero_image: 'Hero banner image changed',
+  og_title: 'Social share title changed',
+  navigation: 'Navigation menu changed',
+  footer: 'Footer links changed',
+  ctas: 'Call-to-action buttons changed',
+  stats: 'Key stats / numbers changed',
+  h1: 'H1 headline changed',
+  h2: 'Sections (H2) changed',
+  h3: 'Sub-sections (H3) changed',
+  new_pages: 'New page(s) discovered',
+  removed_pages: 'Page(s) no longer linked',
+  page_url_changed: 'Page URL changed',
+}
+function humanChangeType(t) { return CHANGE_TYPE_LABELS[t] || t }
 
 function isImageUrl(s) {
   return typeof s === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?.*)?$/i.test(s)
@@ -517,17 +538,24 @@ function ChangeRow({ c }) {
           <ChangeIcon type={c.type} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium flex items-center gap-2">
+          <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
             <span className="truncate">{c.universityName}</span>
             {c.page && c.page !== 'site' && (
               <Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200 h-4 px-1.5">{c.page}</Badge>
             )}
+            <span className="text-xs text-zinc-300">— {humanChangeType(c.type)}</span>
             <ChevronRight className={cx('h-3 w-3 text-zinc-500 transition', open && 'rotate-90')} />
           </div>
           <div className="text-xs text-zinc-500 flex items-center gap-2 flex-wrap">
-            <span className="uppercase tracking-wide">{c.type}</span>
-            <span>·</span>
-            <span>{relTime(c.detectedAt)}</span>
+            {c.previousSnapshotDate ? (
+              <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" />
+                {new Date(c.previousSnapshotDate).toLocaleString([], {month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+                <ArrowUpRight className="h-3 w-3" />
+                {new Date(c.detectedAt).toLocaleString([], {month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+              </span>
+            ) : (
+              <span>{relTime(c.detectedAt)}</span>
+            )}
             {shortUrl && (
               <>
                 <span>·</span>
