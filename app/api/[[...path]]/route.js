@@ -429,14 +429,76 @@ async function handleRoute(request, { params }) {
       return handleCORS(NextResponse.json(clean(snap[0]) || null))
     }
 
-    // GET /api/changes?limit=100&universityId=..
+    // GET /api/changes?limit=100&universityId=..&sinceHours=24
     if (route === '/changes' && method === 'GET') {
       const { searchParams } = new URL(request.url)
       const limit = parseInt(searchParams.get('limit') || '100')
       const universityId = searchParams.get('universityId')
-      const q = universityId ? { universityId } : {}
+      const sinceHours = parseInt(searchParams.get('sinceHours') || '0')
+      const q = {}
+      if (universityId) q.universityId = universityId
+      if (sinceHours > 0) q.detectedAt = { $gte: new Date(Date.now() - sinceHours * 3600 * 1000) }
       const changes = await db.collection('changes').find(q).sort({ detectedAt: -1 }).limit(limit).toArray()
       return handleCORS(NextResponse.json(changes.map(clean)))
+    }
+
+    // GET /api/audit/:universityId — SEO + performance breakdown
+    if (route.startsWith('/audit/') && method === 'GET') {
+      const id = route.split('/').pop()
+      const uni = await db.collection('universities').findOne({ id })
+      if (!uni) return handleCORS(NextResponse.json({ error: 'university not found' }, { status: 404 }))
+      const snap = await db.collection('snapshots').find({ universityId: id }).sort({ createdAt: -1 }).limit(1).toArray()
+      const s = snap[0]
+      if (!s || !s.data) return handleCORS(NextResponse.json({ error: 'no snapshot' }, { status: 404 }))
+
+      const pages = s.data.pages || { home: { seo: s.data.seo, structure: s.data.structure } }
+      const seoAudit = []
+      const performance = []
+      for (const [key, p] of Object.entries(pages)) {
+        if (!p || !p.ok) continue
+        const seo = p.seo || {}; const st = p.structure || {}
+        const t = seo.title || ''; const d = seo.description || ''
+        const factors = [
+          { name: 'Title tag', ok: t.length >= 30 && t.length <= 70, value: t ? `"${t}" (${t.length} chars)` : 'MISSING', ideal: '30-70 chars', weight: 15, source: 'HTML <title>' },
+          { name: 'Meta description', ok: d.length >= 70 && d.length <= 180, value: d ? `"${d.slice(0,120)}${d.length>120?'…':''}" (${d.length} chars)` : 'MISSING', ideal: '70-180 chars', weight: 15, source: 'HTML <meta name="description">' },
+          { name: 'Canonical URL', ok: !!seo.canonical, value: seo.canonical || 'MISSING', ideal: 'Present, absolute URL', weight: 10, source: 'HTML <link rel="canonical">' },
+          { name: 'H1 heading count', ok: (seo.h1?.length || 0) >= 1 && (seo.h1?.length || 0) <= 3, value: `${seo.h1?.length || 0} found: ${(seo.h1||[]).slice(0,3).join(' | ') || '—'}`, ideal: '1–3 per page', weight: 15, source: 'HTML <h1> tags' },
+          { name: 'OG Title', ok: !!seo.ogTitle, value: seo.ogTitle || 'MISSING', ideal: 'Present for social sharing', weight: 10, source: 'HTML <meta property="og:title">' },
+          { name: 'OG Image', ok: !!seo.ogImage, value: seo.ogImage || 'MISSING', ideal: 'Present, 1200x630 preferred', weight: 5, source: 'HTML <meta property="og:image">' },
+          { name: 'Twitter Card', ok: !!seo.twitterCard, value: seo.twitterCard || 'MISSING', ideal: 'summary_large_image', weight: 5, source: 'HTML <meta name="twitter:card">' },
+          { name: 'Structured data (JSON-LD)', ok: (seo.schemaCount || 0) > 0, value: `${seo.schemaCount || 0} block(s)`, ideal: '≥1 schema.org block', weight: 10, source: 'HTML <script type="application/ld+json">' },
+          { name: 'Image alt coverage', ok: (seo.altCoverage || 0) >= 70, value: `${seo.altCoverage || 0}%`, ideal: '≥70%', weight: 15, source: 'HTML <img alt="…">' },
+        ]
+        const gained = factors.reduce((a, f) => a + (f.ok ? f.weight : 0), 0)
+        seoAudit.push({
+          page: key, url: p.finalUrl || p.url, title: t,
+          seoScore: seo.seoScore || gained,
+          factors,
+        })
+        performance.push({
+          page: key,
+          url: p.finalUrl || p.url,
+          status: p.status,
+          bytes: p.bytes || 0,
+          images: st.images || 0,
+          scripts: st.scripts || 0,
+          links: st.links || 0,
+          altCoverage: seo.altCoverage || 0,
+        })
+      }
+
+      return handleCORS(NextResponse.json({
+        university: clean(uni),
+        latestSnapshot: {
+          id: s.id,
+          createdAt: s.createdAt,
+          elapsedMs: s.elapsedMs,
+          bytesFetched: s.bytesFetched,
+          pageCount: s.data.pageCount,
+        },
+        seoAudit,
+        performance,
+      }))
     }
 
     // POST /api/ai/benchmark { competitorId }

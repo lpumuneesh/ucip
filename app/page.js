@@ -125,7 +125,101 @@ function KpiCard({ icon: Icon, label, value, sub, tint = 'from-indigo-500/20 to-
   )
 }
 
-function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
+function SeoAuditDialog({ universityId, open, onClose }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open || !universityId) return
+    setLoading(true); setData(null)
+    api(`/audit/${universityId}`).then(setData).catch(e => toast.error(e.message)).finally(() => setLoading(false))
+  }, [open, universityId])
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-5xl bg-zinc-950 border-white/10 max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-indigo-400" />
+            SEO & Performance Audit {data?.university && <span className="text-zinc-400 font-normal">— {data.university.name}</span>}
+          </DialogTitle>
+          <DialogDescription>
+            {data?.latestSnapshot ? (
+              <>Last scan: {new Date(data.latestSnapshot.createdAt).toLocaleString()} · {data.latestSnapshot.pageCount} pages · fetched {Math.round(data.latestSnapshot.bytesFetched/1024)} KB in {Math.round(data.latestSnapshot.elapsedMs/1000)}s</>
+            ) : 'Loading…'}
+          </DialogDescription>
+        </DialogHeader>
+        {loading || !data ? (
+          <div className="py-10 text-center text-zinc-500"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />Building audit…</div>
+        ) : (
+          <Tabs defaultValue="seo">
+            <TabsList className="bg-white/[0.03] border border-white/10">
+              <TabsTrigger value="seo"><ShieldCheck className="h-3.5 w-3.5 mr-1" />SEO breakdown</TabsTrigger>
+              <TabsTrigger value="perf"><Activity className="h-3.5 w-3.5 mr-1" />Page performance</TabsTrigger>
+            </TabsList>
+            <TabsContent value="seo" className="mt-4 space-y-3">
+              {data.seoAudit.map(page => (
+                <Glass key={page.page} className="p-4">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200 uppercase">{page.page}</Badge>
+                    <a href={page.url} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-300 hover:text-indigo-200 hover:underline truncate max-w-[400px]">
+                      <ExternalLink className="h-3 w-3 inline mr-1" />{page.url}
+                    </a>
+                    <div className="ml-auto flex items-center gap-2">
+                      <div className={cx('text-2xl font-semibold tabular-nums',
+                        page.seoScore >= 80 ? 'text-emerald-300' : page.seoScore >= 60 ? 'text-yellow-300' : 'text-red-300')}>
+                        {page.seoScore}<span className="text-zinc-500 text-sm">/100</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-2">
+                    {page.factors.map((f, i) => (
+                      <div key={i} className={cx('rounded-lg border p-2.5 text-xs',
+                        f.ok ? 'border-emerald-500/25 bg-emerald-500/[0.04]' : 'border-red-500/25 bg-red-500/[0.04]')}>
+                        <div className="flex items-center gap-2 mb-1">
+                          {f.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+                          <span className="font-medium text-white">{f.name}</span>
+                          <span className="ml-auto text-[10px] text-zinc-500">{f.ok ? '+' : ''}{f.weight}pts</span>
+                        </div>
+                        <div className="text-[11px] text-zinc-300 break-words">{f.value}</div>
+                        <div className="text-[10px] text-zinc-500 mt-1">
+                          <span className="text-zinc-600">Ideal:</span> {f.ideal}
+                          <span className="mx-2 text-zinc-700">·</span>
+                          <span className="text-zinc-600">Source:</span> <code className="text-zinc-400">{f.source}</code>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+              ))}
+            </TabsContent>
+            <TabsContent value="perf" className="mt-4">
+              <Glass className="p-0 overflow-hidden">
+                <div className="grid grid-cols-8 gap-2 p-3 text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/5">
+                  <div>Page</div><div>Status</div><div className="text-right">Bytes</div><div className="text-right">Images</div><div className="text-right">Scripts</div><div className="text-right">Links</div><div className="text-right">Alt %</div><div>URL</div>
+                </div>
+                {data.performance.map((p, i) => (
+                  <div key={i} className="grid grid-cols-8 gap-2 p-3 text-xs border-b border-white/5 last:border-0 hover:bg-white/[0.02]">
+                    <div><Badge variant="outline" className="text-[10px] border-indigo-500/30 bg-indigo-500/10 text-indigo-200">{p.page}</Badge></div>
+                    <div className={p.status >= 200 && p.status < 300 ? 'text-emerald-300' : 'text-red-300'}>{p.status}</div>
+                    <div className="text-right tabular-nums">{Math.round(p.bytes / 1024)} KB</div>
+                    <div className="text-right tabular-nums">{p.images}</div>
+                    <div className="text-right tabular-nums">{p.scripts}</div>
+                    <div className="text-right tabular-nums">{p.links}</div>
+                    <div className={cx('text-right tabular-nums', p.altCoverage >= 70 ? 'text-emerald-300' : 'text-yellow-300')}>{p.altCoverage}%</div>
+                    <div className="truncate"><a href={p.url} target="_blank" rel="noreferrer" className="text-indigo-300 hover:underline">{(p.url||'').replace(/^https?:\/\//,'').slice(0,40)}</a></div>
+                  </div>
+                ))}
+              </Glass>
+            </TabsContent>
+          </Tabs>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function UniversityCard({ uni, onView, onBenchmark, benchmarking, onAudit }) {
   const seo = uni.health?.seoScore || 0
   const status = uni.health?.status || 'idle'
   const changes = uni.health?.changes || 0
@@ -171,6 +265,9 @@ function UniversityCard({ uni, onView, onBenchmark, benchmarking }) {
       <div className="mt-4 flex gap-2">
         <Button size="sm" variant="secondary" className="flex-1 h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={() => onView(uni)}>
           <Eye className="h-3.5 w-3.5 mr-1" />View
+        </Button>
+        <Button size="sm" variant="secondary" className="h-8 w-9 p-0 bg-white/5 hover:bg-white/15 text-zinc-100 hover:text-white border border-white/10" onClick={() => onAudit(uni)} title="SEO & Performance audit">
+          <ShieldCheck className="h-3.5 w-3.5" />
         </Button>
         {!uni.primary && (
           <Button size="sm" className="flex-1 h-8 bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md" onClick={() => onBenchmark(uni)} disabled={benchmarking === uni.id}>
@@ -1186,6 +1283,8 @@ export default function App() {
   const [execLoading, setExecLoading] = useState(false)
   const [cmdOpen, setCmdOpen] = useState(false)
   const [tab, setTab] = useState('overview')
+  const [auditUni, setAuditUni] = useState(null)
+  const [recentChanges24h, setRecentChanges24h] = useState([])
   // Auth state
   const [me, setMe] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
@@ -1211,6 +1310,8 @@ export default function App() {
       setDash(d)
       const e = await api('/ai/executive-summary/latest')
       setExecSummary(e)
+      const recent24 = await api('/changes?sinceHours=24&limit=30')
+      setRecentChanges24h(recent24)
     } catch (e) {
       toast.error('Failed to load: ' + e.message)
     } finally {
@@ -1325,6 +1426,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex-1" />
+          {dash?.recentLogs?.[0] && (
+            <div className="hidden lg:flex items-center gap-1 text-[11px] text-zinc-500 border border-white/10 rounded-lg px-2.5 py-1.5 bg-white/[0.02]">
+              <Calendar className="h-3 w-3" />
+              <span>Last scan {relTime(dash.recentLogs[0].createdAt)}</span>
+            </div>
+          )}
           <button onClick={() => setCmdOpen(true)} className="hidden md:flex items-center gap-2 text-xs text-zinc-400 border border-white/10 rounded-lg px-3 py-1.5 bg-white/[0.02] hover:bg-white/5">
             <Search className="h-3.5 w-3.5" />
             <span>Search</span>
@@ -1363,11 +1470,17 @@ export default function App() {
           <Glass className="lg:col-span-2 p-6 relative overflow-hidden">
             <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-gradient-to-br from-indigo-500/30 to-violet-500/10 blur-3xl" />
             <div className="relative">
-              <div className="flex items-center gap-2 text-xs text-indigo-300 mb-2">
+              <div className="flex items-center gap-2 text-xs text-indigo-300 mb-2 flex-wrap">
                 <Bot className="h-3.5 w-3.5" />
                 <span className="uppercase tracking-widest">GPT-5 Executive Briefing</span>
-                <span className="text-zinc-600">•</span>
-                <span className="text-zinc-400">{execSummary ? new Date(execSummary.createdAt).toLocaleString() : 'Not yet generated'}</span>
+                <span className="text-zinc-600">·</span>
+                <span className="text-zinc-400">{execSummary ? `Generated ${new Date(execSummary.createdAt).toLocaleString()}` : 'Not yet generated'}</span>
+                {dash?.recentLogs?.[0] && (
+                  <>
+                    <span className="text-zinc-600">·</span>
+                    <span className="text-zinc-500 inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" />Last scan {new Date(dash.recentLogs[0].createdAt).toLocaleString()}</span>
+                  </>
+                )}
               </div>
               {execSummary?.summary ? (
                 <>
@@ -1375,16 +1488,28 @@ export default function App() {
                   <p className="text-zinc-400 mt-2 text-sm leading-relaxed">{execSummary.summary.summary}</p>
                   <div className="grid md:grid-cols-3 gap-3 mt-4">
                     <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
-                      <div className="text-[10px] uppercase text-red-300 tracking-wider mb-1">Critical Issues</div>
-                      <ul className="text-xs space-y-1">{execSummary.summary.criticalIssues?.slice(0,3).map((s,i)=><li key={i} className="text-zinc-300">• {s}</li>)}</ul>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[10px] uppercase text-red-300 tracking-wider flex items-center gap-1"><AlertCircle className="h-3 w-3" />Critical Issues</div>
+                        <span className="text-[9px] text-red-400/60">{execSummary.summary.criticalIssues?.length || 0}</span>
+                      </div>
+                      <div className="text-[10px] text-red-300/60 mb-2 italic">Risks LPU must address — sector-wide threats or gaps in our position vs competitors</div>
+                      <ul className="text-xs space-y-1">{execSummary.summary.criticalIssues?.slice(0,4).map((s,i)=><li key={i} className="text-zinc-300 flex gap-1"><span className="text-red-400 shrink-0">•</span><span>{s}</span></li>)}</ul>
                     </div>
                     <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-                      <div className="text-[10px] uppercase text-emerald-300 tracking-wider mb-1">Today's Focus</div>
-                      <ul className="text-xs space-y-1">{execSummary.summary.todaysFocus?.slice(0,3).map((s,i)=><li key={i} className="text-zinc-300">• {s}</li>)}</ul>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[10px] uppercase text-emerald-300 tracking-wider flex items-center gap-1"><Zap className="h-3 w-3" />Today's Focus</div>
+                        <span className="text-[9px] text-emerald-400/60">{execSummary.summary.todaysFocus?.length || 0}</span>
+                      </div>
+                      <div className="text-[10px] text-emerald-300/60 mb-2 italic">3 concrete actions LPU marketing/admissions should ship today to close the gap</div>
+                      <ul className="text-xs space-y-1">{execSummary.summary.todaysFocus?.slice(0,4).map((s,i)=><li key={i} className="text-zinc-300 flex gap-1"><span className="text-emerald-400 shrink-0">•</span><span>{s}</span></li>)}</ul>
                     </div>
                     <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
-                      <div className="text-[10px] uppercase text-orange-300 tracking-wider mb-1">Competitor Movements</div>
-                      <ul className="text-xs space-y-1">{execSummary.summary.competitorMovements?.slice(0,3).map((s,i)=><li key={i} className="text-zinc-300">• {s}</li>)}</ul>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[10px] uppercase text-orange-300 tracking-wider flex items-center gap-1"><TrendingUp className="h-3 w-3" />Competitor Movements</div>
+                        <span className="text-[9px] text-orange-400/60">{execSummary.summary.competitorMovements?.length || 0}</span>
+                      </div>
+                      <div className="text-[10px] text-orange-300/60 mb-2 italic">What competitors changed recently — new pages, features, positioning shifts LPU should react to</div>
+                      <ul className="text-xs space-y-1">{execSummary.summary.competitorMovements?.slice(0,4).map((s,i)=><li key={i} className="text-zinc-300 flex gap-1"><span className="text-orange-400 shrink-0">•</span><span>{s}</span></li>)}</ul>
                     </div>
                   </div>
                 </>
@@ -1397,7 +1522,7 @@ export default function App() {
               <div className="mt-4 flex gap-2">
                 <Button size="sm" onClick={generateExec} disabled={execLoading} className="bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-100 hover:text-white shadow-sm">
                   {execLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
-                  Generate Executive Briefing
+                  {execSummary ? 'Regenerate briefing (uses latest crawl)' : 'Generate Executive Briefing'}
                 </Button>
                 <Button size="sm" variant="ghost" className="text-zinc-200 hover:text-white hover:bg-white/10" onClick={() => setTab('changes')}>
                   View all changes <ChevronRight className="h-3.5 w-3.5 ml-1" />
@@ -1480,20 +1605,41 @@ export default function App() {
             <Glass className="p-5">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-sm font-medium">Recent Detected Changes</div>
-                  <div className="text-xs text-zinc-500">Automatically diff'd against previous snapshot</div>
+                  <div className="text-sm font-medium flex items-center gap-2">
+                    Recent Detected Changes
+                    <Badge variant="outline" className="text-[10px] border-white/10 text-zinc-400">Last 24h</Badge>
+                  </div>
+                  <div className="text-xs text-zinc-500">Automatically diff'd against previous snapshot. Every row includes an evidence chip you can hover.</div>
                 </div>
-                <Badge variant="outline" className="border-white/10 text-zinc-400">{changes.length}</Badge>
+                <div className="flex items-center gap-2">
+                  {recentChanges24h.length === 0 ? (
+                    <Badge variant="outline" className="text-[10px] border-emerald-500/30 bg-emerald-500/10 text-emerald-300">✓ All clear</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] border-orange-500/30 bg-orange-500/10 text-orange-300">{recentChanges24h.length} new</Badge>
+                  )}
+                </div>
               </div>
-              {changes.length === 0 ? (
-                <div className="py-10 text-center text-zinc-500">
-                  <Activity className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                  <div className="text-sm">No changes detected yet</div>
-                  <div className="text-xs">Run the daily crawl twice to see day-over-day changes</div>
-                </div>
+              {recentChanges24h.length === 0 ? (
+                <>
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-4 mb-3 flex items-start gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-sm font-medium text-emerald-100">No changes detected in the last 24 hours</div>
+                      <div className="text-xs text-emerald-200/70 mt-0.5">All 8 monitored universities are stable since the last crawl. Showing most recent historical changes below for reference.</div>
+                    </div>
+                  </div>
+                  {changes.length > 0 && (
+                    <>
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 mt-4">Historical changes (older than 24h)</div>
+                      <div className="space-y-2 opacity-80">
+                        {changes.slice(0, 6).map(c => <ChangeRow key={c.id} c={c} />)}
+                      </div>
+                    </>
+                  )}
+                </>
               ) : (
                 <div className="space-y-2">
-                  {changes.slice(0, 8).map(c => <ChangeRow key={c.id} c={c} />)}
+                  {recentChanges24h.slice(0, 10).map(c => <ChangeRow key={c.id} c={c} />)}
                 </div>
               )}
             </Glass>
@@ -1506,7 +1652,7 @@ export default function App() {
               </div>
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {unis.map(u => <UniversityCard key={u.id} uni={u} onView={viewUni} onBenchmark={benchmark} benchmarking={benchmarking} />)}
+                {unis.map(u => <UniversityCard key={u.id} uni={u} onView={viewUni} onBenchmark={benchmark} benchmarking={benchmarking} onAudit={setAuditUni} />)}
               </div>
             )}
           </TabsContent>
@@ -1546,6 +1692,9 @@ export default function App() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* SEO & Performance Audit */}
+      <SeoAuditDialog universityId={auditUni?.id} open={!!auditUni} onClose={() => setAuditUni(null)} />
 
       {/* Admin Panel Dialog */}
       <Dialog open={adminOpen} onOpenChange={setAdminOpen}>
