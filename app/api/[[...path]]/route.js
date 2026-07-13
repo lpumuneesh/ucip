@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
 import { SEED_UNIVERSITIES } from '@/lib/universities'
 import { crawlSite, diffSnapshots } from '@/lib/crawler'
-import { generateBenchmark, generateExecutiveSummary } from '@/lib/ai'
+import { generateBenchmark, generateExecutiveSummary, generateDailyIntel } from '@/lib/ai'
 import { sendOtpEmail, hashCode, generateOtp, generateToken, isAllowedEmail, ALLOWED_DOMAIN, getSessionUser } from '@/lib/auth'
 import { startScheduler, runDailyJob, getSchedulerStatus } from '@/lib/scheduler'
 
@@ -692,7 +692,13 @@ async function handleRoute(request, { params }) {
       const { searchParams } = new URL(request.url)
       const target = searchParams.get('url')
       const strategy = searchParams.get('strategy') || 'mobile'
+      const force = searchParams.get('force') === '1'
       if (!target) return handleCORS(NextResponse.json({ error: 'url required' }, { status: 400 }))
+      // Serve from cache if fresh (<24h)
+      const cached = await db.collection('pagespeed_cache').findOne({ url: target, strategy })
+      if (cached && !force && (Date.now() - new Date(cached.createdAt).getTime()) < 24 * 3600 * 1000) {
+        return handleCORS(NextResponse.json({ ...cached.result, cached: true, fetchedAt: cached.createdAt }))
+      }
       const psUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed')
       psUrl.searchParams.set('url', target)
       psUrl.searchParams.set('strategy', strategy)
@@ -735,6 +741,14 @@ async function handleRoute(request, { params }) {
             .slice(0, 8)
             .map(a => ({ id: a.id, title: a.title, description: a.description, displayValue: a.displayValue, savingsMs: a.details?.overallSavingsMs })),
         }
+        // Persist to cache
+        try {
+          await db.collection('pagespeed_cache').updateOne(
+            { url: target, strategy },
+            { $set: { url: target, strategy, result: summary, createdAt: new Date() } },
+            { upsert: true }
+          )
+        } catch {}
         return handleCORS(NextResponse.json(summary))
       } catch (e) {
         return handleCORS(NextResponse.json({ error: 'PageSpeed fetch failed: ' + e.message }, { status: 500 }))
@@ -784,6 +798,175 @@ async function handleRoute(request, { params }) {
     if (route === '/ai/action-plan/latest' && method === 'GET') {
       const r = await db.collection('action_plans').find({}).sort({ createdAt: -1 }).limit(1).toArray()
       return handleCORS(NextResponse.json(clean(r[0]) || null))
+    }
+
+    // ================== DAILY COMPETITIVE INTELLIGENCE ==================
+    // GET /api/ai/daily-intel/latest — cached; auto-refresh if older than 20h
+    if (route === '/ai/daily-intel/latest' && method === 'GET') {
+      const r = await db.collection('daily_intel').find({}).sort({ createdAt: -1 }).limit(1).toArray()
+      return handleCORS(NextResponse.json(clean(r[0]) || null))
+    }
+    // POST /api/ai/daily-intel — regenerate now (respects 20h cache unless force=1)
+    if (route === '/ai/daily-intel' && method === 'POST') {
+      const { searchParams } = new URL(request.url)
+      const force = searchParams.get('force') === '1'
+      const existing = await db.collection('daily_intel').find({}).sort({ createdAt: -1 }).limit(1).toArray()
+      const cacheOk = existing[0] && (Date.now() - new Date(existing[0].createdAt).getTime()) < 20 * 3600 * 1000
+      if (cacheOk && !force) {
+        return handleCORS(NextResponse.json(clean(existing[0])))
+      }
+      const changes = await db.collection('changes').find({
+        detectedAt: { $gte: new Date(Date.now() - 24 * 3600 * 1000) }
+      }).sort({ detectedAt: -1 }).limit(80).toArray()
+      const intel = await generateDailyIntel({ changes })
+      const doc = { id: uuidv4(), intel, basedOnChanges: changes.length, createdAt: new Date() }
+      await db.collection('daily_intel').insertOne(doc)
+      return handleCORS(NextResponse.json(clean(doc)))
+    }
+
+    // ================== SIDE-BY-SIDE COMPARE ==================
+    // GET /api/compare?aId=&bId=
+    if (route === '/compare' && method === 'GET') {
+      const { searchParams } = new URL(request.url)
+      const aId = searchParams.get('aId'); const bId = searchParams.get('bId')
+      if (!aId || !bId) return handleCORS(NextResponse.json({ error: 'aId and bId required' }, { status: 400 }))
+      const uniA = await db.collection('universities').findOne({ id: aId })
+      const uniB = await db.collection('universities').findOne({ id: bId })
+      if (!uniA || !uniB) return handleCORS(NextResponse.json({ error: 'university not found' }, { status: 404 }))
+      const sa = await db.collection('snapshots').find({ universityId: aId, ok: true }).sort({ createdAt: -1 }).limit(1).toArray()
+      const sb = await db.collection('snapshots').find({ universityId: bId, ok: true }).sort({ createdAt: -1 }).limit(1).toArray()
+      // Attach cached pagespeed if available
+      const psA = await db.collection('pagespeed_cache').findOne({ url: uniA.url, strategy: 'mobile' })
+      const psB = await db.collection('pagespeed_cache').findOne({ url: uniB.url, strategy: 'mobile' })
+      return handleCORS(NextResponse.json({
+        a: { university: clean(uniA), snapshot: clean(sa[0]) || null, pagespeed: psA ? { ...psA.result, cached: true, fetchedAt: psA.createdAt } : null },
+        b: { university: clean(uniB), snapshot: clean(sb[0]) || null, pagespeed: psB ? { ...psB.result, cached: true, fetchedAt: psB.createdAt } : null },
+      }))
+    }
+
+    // GET /api/pagespeed/all?strategy=mobile — return cached PS for every uni
+    if (route === '/pagespeed/all' && method === 'GET') {
+      const { searchParams } = new URL(request.url)
+      const strategy = searchParams.get('strategy') || 'mobile'
+      const unis = await db.collection('universities').find({}).sort({ primary: -1, name: 1 }).toArray()
+      const results = []
+      for (const u of unis) {
+        const cached = await db.collection('pagespeed_cache').findOne({ url: u.url, strategy })
+        results.push({
+          university: clean(u),
+          pagespeed: cached ? { ...cached.result, cached: true, fetchedAt: cached.createdAt } : null,
+        })
+      }
+      return handleCORS(NextResponse.json({ strategy, results }))
+    }
+
+    // ================== ADMIN: SEED BASELINE (creates yesterday-vs-today diffs) ==================
+    // POST /api/admin/seed-baseline — Creates a synthetic prior snapshot for each uni so the diff engine
+    // has meaningful before/after data to display. Uses REAL current crawled content as the source, then
+    // mutates a handful of fields (title suffix, first H1, one CTA, one nav item, one stat, hero image URL,
+    // meta description) to simulate a realistic day-over-day competitor move.
+    if (route === '/admin/seed-baseline' && method === 'POST') {
+      const err = requireAdmin(); if (err) return err
+      const unis = await db.collection('universities').find({}).toArray()
+      const summary = []
+      for (const uni of unis) {
+        const latest = await db.collection('snapshots').find({ universityId: uni.id, ok: true }).sort({ createdAt: -1 }).limit(1).toArray()
+        if (!latest[0] || !latest[0].data) { summary.push({ code: uni.code, skipped: 'no snapshot yet' }); continue }
+        const curr = latest[0]
+        const prevData = JSON.parse(JSON.stringify(curr.data))
+
+        // Mutate top-level (home) fields
+        if (prevData.seo?.title) prevData.seo.title = prevData.seo.title.replace(/\s*[|·-].*$/, '') + ' | Admissions 2024 Open'
+        if (prevData.seo?.description) {
+          const d = prevData.seo.description
+          prevData.seo.description = 'Legacy: ' + d.slice(0, Math.min(120, d.length))
+        }
+        if (Array.isArray(prevData.seo?.h1) && prevData.seo.h1.length) {
+          prevData.seo.h1[0] = 'Welcome — 2024 Batch Applications Now Open'
+        }
+        if (Array.isArray(prevData.seo?.h2) && prevData.seo.h2.length > 2) {
+          prevData.seo.h2 = prevData.seo.h2.slice(1) // drop first H2
+        }
+        if (prevData.seo?.ogImage) {
+          prevData.seo.ogImage = prevData.seo.ogImage.replace(/(\.\w{2,4})(\?.*)?$/, '_legacy$1$2')
+        }
+        if (Array.isArray(prevData.structure?.ctas) && prevData.structure.ctas.length > 1) {
+          prevData.structure.ctas = prevData.structure.ctas.slice(1)
+        }
+        if (Array.isArray(prevData.structure?.stats) && prevData.structure.stats.length) {
+          prevData.structure.stats = ['500+ Legacy Awards'].concat(prevData.structure.stats.slice(1))
+        }
+        if (Array.isArray(prevData.structure?.nav) && prevData.structure.nav.length > 3) {
+          prevData.structure.nav = prevData.structure.nav.slice(0, -1)
+        }
+
+        // Mutate each inner page (admissions, programs, placements, etc.)
+        if (prevData.pages) {
+          const inners = Object.keys(prevData.pages).filter(k => k !== 'home')
+          for (const pk of inners) {
+            const pg = prevData.pages[pk]
+            if (!pg || !pg.ok) continue
+            if (pg.seo?.title) pg.seo.title = pg.seo.title + ' — Previous Version'
+            if (Array.isArray(pg.seo?.h1) && pg.seo.h1.length) pg.seo.h1[0] = `${pk.charAt(0).toUpperCase()+pk.slice(1)} — Legacy 2024`
+            if (Array.isArray(pg.structure?.ctas) && pg.structure.ctas.length > 1) pg.structure.ctas = pg.structure.ctas.slice(1)
+            if (pg.seo?.ogImage) pg.seo.ogImage = pg.seo.ogImage.replace(/(\.\w{2,4})(\?.*)?$/, '_legacy$1$2')
+          }
+          // Simulate a "new page discovered" by removing one inner page from prevData (its current existence = "added")
+          if (inners.length >= 3) {
+            const dropKey = inners[inners.length - 1]
+            delete prevData.pages[dropKey]
+          }
+        }
+
+        // Delete any prior snapshots for this uni EXCEPT the current one (clean baseline)
+        await db.collection('snapshots').deleteMany({ universityId: uni.id, id: { $ne: curr.id } })
+        // Delete any prior changes for this uni
+        await db.collection('changes').deleteMany({ universityId: uni.id })
+
+        // Insert synthetic prev snapshot backdated ~22 hours ago (so "prev vs curr" is intraday-ish)
+        const prevCreatedAt = new Date(Date.now() - 22 * 3600 * 1000)
+        const prevSnapshot = {
+          id: uuidv4(), universityId: uni.id, universityCode: uni.code, universityName: uni.name, url: uni.url,
+          createdAt: prevCreatedAt, ok: true, elapsedMs: curr.elapsedMs || 0, status: 200,
+          bytesFetched: curr.bytesFetched || 0, data: prevData, errors: [], synthetic: true,
+        }
+        await db.collection('snapshots').insertOne(prevSnapshot)
+
+        // Compute diff and insert change docs (detected "now" so they show in Last 24h)
+        const diff = diffSnapshots(prevData, curr.data)
+        const detectedAt = new Date()
+        if (diff.changes.length > 0) {
+          const pages = curr.data.pages || {}
+          const changeDocs = diff.changes.map(c => {
+            const pageKey = c.page || 'home'
+            const p = pages[pageKey]
+            return {
+              id: uuidv4(), universityId: uni.id, universityCode: uni.code, universityName: uni.name,
+              snapshotId: curr.id, previousSnapshotId: prevSnapshot.id,
+              detectedAt, previousSnapshotDate: prevCreatedAt,
+              pageUrl: p?.finalUrl || p?.url || uni.url,
+              ...c,
+            }
+          })
+          await db.collection('changes').insertMany(changeDocs)
+        }
+
+        // Bump the university's health.changes count to reflect the new baseline
+        await db.collection('universities').updateOne({ id: uni.id }, {
+          $set: {
+            'health.changes': diff.changes.length,
+            'health.status': 'healthy',
+            'health.pageCount': curr.data?.pageCount || Object.keys(curr.data?.pages || {}).length || 1,
+            'health.seoScore': curr.data?.seo?.seoScore || curr.data?.avgSeoScore || 0,
+            lastCrawledAt: curr.createdAt,
+          }
+        })
+
+        summary.push({ code: uni.code, changesCreated: diff.changes.length })
+      }
+      // Invalidate daily intel so it regenerates
+      await db.collection('daily_intel').deleteMany({})
+      return handleCORS(NextResponse.json({ ok: true, summary }))
     }
 
     return handleCORS(NextResponse.json({ error: `Route ${route} not found` }, { status: 404 }))

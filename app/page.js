@@ -8,7 +8,7 @@ import {
   GraduationCap, Layers, LineChart as LineChartIcon, Loader2, Minus,
   Plus, RefreshCw, Search, Send, ShieldCheck, Sparkles, TrendingUp,
   Zap, Building2, Calendar, Bell, Filter, X, LogOut, User as UserIcon, Users, Mail,
-  KeyRound, ShieldAlert, UserPlus, Trash2
+  KeyRound, ShieldAlert, UserPlus, Trash2, GitCompare, Gauge, Flame, Rocket, Database
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -1425,6 +1425,450 @@ function AdminPanel({ me, onClose }) {
   )
 }
 
+function DailyIntelCard({ intel, loading, onRefresh, canRefresh }) {
+  if (loading && !intel) {
+    return (
+      <Glass className="p-5">
+        <div className="flex items-center gap-2 text-indigo-300 mb-3">
+          <Rocket className="h-4 w-4" />
+          <span className="text-xs uppercase tracking-widest">Daily Competitive Intelligence</span>
+        </div>
+        <div className="py-10 text-center text-zinc-500">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+          Generating today's competitive briefing with GPT-5…
+        </div>
+      </Glass>
+    )
+  }
+  if (!intel?.intel) {
+    return (
+      <Glass className="p-5">
+        <div className="flex items-center gap-2 text-indigo-300 mb-2">
+          <Rocket className="h-4 w-4" />
+          <span className="text-xs uppercase tracking-widest">Daily Competitive Intelligence</span>
+        </div>
+        <div className="text-sm text-zinc-400 mb-3">Generate today's actionable briefing on what competitors did in the last 24 hours and what LPU should ship <span className="text-white font-medium">TODAY</span>.</div>
+        <Button size="sm" onClick={onRefresh} disabled={!canRefresh} className="bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md">
+          <Sparkles className="h-3.5 w-3.5 mr-1" />Generate today's intel
+        </Button>
+      </Glass>
+    )
+  }
+  const i = intel.intel
+  const urgCls = {
+    critical: 'border-red-500/25 bg-red-500/[0.06]',
+    high: 'border-orange-500/25 bg-orange-500/[0.06]',
+    medium: 'border-amber-500/25 bg-amber-500/[0.06]',
+    low: 'border-sky-500/25 bg-sky-500/[0.06]',
+  }
+  return (
+    <Glass className="p-5 relative overflow-hidden">
+      <div className="absolute -top-16 -right-16 w-56 h-56 rounded-full blur-3xl opacity-40 bg-gradient-to-br from-fuchsia-500/30 to-indigo-500/10" />
+      <div className="relative">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div className="flex items-center gap-2 text-fuchsia-300 mb-2">
+              <Rocket className="h-4 w-4" />
+              <span className="text-xs uppercase tracking-widest">Today's Competitive Intelligence</span>
+              <Badge variant="outline" className="text-[10px] border-white/10 text-zinc-400 ml-2">
+                {intel.basedOnChanges} changes · {new Date(intel.createdAt).toLocaleString([], { hour:'2-digit', minute:'2-digit' })}
+              </Badge>
+            </div>
+            <h2 className="text-lg md:text-xl font-semibold leading-snug text-white">{i.headline}</h2>
+          </div>
+          <Button size="sm" variant="ghost" onClick={onRefresh} disabled={loading || !canRefresh} className="h-8 text-zinc-300 hover:text-white hover:bg-white/10 shrink-0">
+            {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+            Regenerate
+          </Button>
+        </div>
+
+        {i.todayForLpu?.length > 0 && (
+          <div className="grid md:grid-cols-3 gap-2 mb-3">
+            {i.todayForLpu.slice(0, 3).map((a, idx) => (
+              <div key={idx} className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+                <div className="flex items-start gap-2 mb-1">
+                  <Flame className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="text-sm font-semibold text-emerald-50 leading-snug flex-1">{a.action}</div>
+                </div>
+                <div className="text-[11px] text-zinc-300 leading-relaxed mb-2">{a.detail}</div>
+                <div className="flex items-center gap-2 text-[10px] text-zinc-500 flex-wrap">
+                  <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-200 text-[10px]">{a.owner}</Badge>
+                  <Badge variant="outline" className="border-white/10 bg-white/5 text-zinc-300 text-[10px] uppercase">{a.deadline}</Badge>
+                </div>
+                {a.expectedImpact && <div className="text-[10px] text-emerald-300/70 mt-1.5 italic">→ {a.expectedImpact}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <div className="rounded-xl border border-orange-500/20 bg-orange-500/[0.05] p-3">
+            <div className="text-[10px] uppercase text-orange-300 tracking-wider mb-2 flex items-center gap-1">
+              <TrendingUp className="h-3 w-3" />Competitor Moves ({i.competitiveMoves?.length || 0})
+            </div>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              {i.competitiveMoves?.map((m, idx) => {
+                return (
+                  <div key={idx} className={cx('rounded-lg border p-2 text-xs', urgCls[m.urgency] || urgCls.medium)}>
+                    <div className="flex items-start gap-2 mb-0.5">
+                      <div className="font-medium text-white flex-1">{m.competitor}</div>
+                      <SeverityChip severity={m.urgency} />
+                    </div>
+                    <div className="text-zinc-200">{m.move}</div>
+                    <div className="text-[10px] text-zinc-400 italic mt-1">→ {m.whyItMatters}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {i.riskSignals?.length > 0 && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/[0.05] p-3">
+                <div className="text-[10px] uppercase text-red-300 tracking-wider mb-1.5 flex items-center gap-1"><AlertCircle className="h-3 w-3" />Risk Signals</div>
+                <ul className="text-xs space-y-1">{i.riskSignals.map((s, idx) => <li key={idx} className="text-zinc-300 flex gap-1"><span className="text-red-400 shrink-0">•</span><span>{s}</span></li>)}</ul>
+              </div>
+            )}
+            {i.opportunities?.length > 0 && (
+              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.05] p-3">
+                <div className="text-[10px] uppercase text-cyan-300 tracking-wider mb-1.5 flex items-center gap-1"><Sparkles className="h-3 w-3" />LPU Opportunities</div>
+                <ul className="text-xs space-y-1">{i.opportunities.map((s, idx) => <li key={idx} className="text-zinc-300 flex gap-1"><span className="text-cyan-400 shrink-0">•</span><span>{s}</span></li>)}</ul>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Glass>
+  )
+}
+
+function CompareView({ universities }) {
+  const [aId, setAId] = useState(null)
+  const [bId, setBId] = useState(null)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState('home')
+
+  useEffect(() => {
+    if (universities.length >= 2 && !aId && !bId) {
+      const lpu = universities.find(u => u.code === 'LPU') || universities[0]
+      const other = universities.find(u => u.id !== lpu.id) || universities[1]
+      setAId(lpu.id); setBId(other.id)
+    }
+  }, [universities])
+
+  useEffect(() => {
+    if (!aId || !bId) return
+    let alive = true; setLoading(true); setData(null)
+    api(`/compare?aId=${aId}&bId=${bId}`).then(d => alive && setData(d)).catch(e => toast.error(e.message)).finally(() => alive && setLoading(false))
+    return () => { alive = false }
+  }, [aId, bId])
+
+  const availablePages = useMemo(() => {
+    if (!data) return ['home']
+    const a = Object.keys(data.a?.snapshot?.data?.pages || {})
+    const b = Object.keys(data.b?.snapshot?.data?.pages || {})
+    const merged = Array.from(new Set([...a, ...b]))
+    // Order: home first, then rest
+    return ['home', ...merged.filter(x => x !== 'home')]
+  }, [data])
+
+  useEffect(() => {
+    if (!availablePages.includes(page)) setPage(availablePages[0] || 'home')
+  }, [availablePages, page])
+
+  const getPage = (side) => side?.snapshot?.data?.pages?.[page] || (page === 'home' ? { seo: side?.snapshot?.data?.seo, structure: side?.snapshot?.data?.structure, url: side?.university?.url } : null)
+
+  const cmpChip = (a, b, label) => {
+    const same = (a || '') === (b || '')
+    return { same, aVal: a, bVal: b }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Glass className="p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="text-xs text-zinc-500">Comparing:</div>
+          <Select value={aId || ''} onValueChange={setAId}>
+            <SelectTrigger className="w-56 h-9 bg-white/5 border-white/10 text-white text-sm"><SelectValue placeholder="Pick a university" /></SelectTrigger>
+            <SelectContent>{universities.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}</SelectContent>
+          </Select>
+          <span className="text-zinc-500 font-semibold">vs</span>
+          <Select value={bId || ''} onValueChange={setBId}>
+            <SelectTrigger className="w-56 h-9 bg-white/5 border-white/10 text-white text-sm"><SelectValue placeholder="Pick a university" /></SelectTrigger>
+            <SelectContent>{universities.map(u => <SelectItem key={u.id} value={u.id} disabled={u.id === aId}>{u.name}</SelectItem>)}</SelectContent>
+          </Select>
+          <div className="ml-auto flex items-center gap-2">
+            <div className="text-xs text-zinc-500">Page:</div>
+            <Select value={page} onValueChange={setPage}>
+              <SelectTrigger className="w-40 h-9 bg-white/5 border-white/10 text-white text-sm capitalize"><SelectValue /></SelectTrigger>
+              <SelectContent>{availablePages.map(p => <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Glass>
+
+      {loading || !data ? (
+        <Glass className="p-10 text-center text-zinc-500"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />Loading comparison…</Glass>
+      ) : (
+        <>
+          {/* Header row */}
+          <div className="grid md:grid-cols-2 gap-3">
+            {['a', 'b'].map(side => {
+              const s = data[side]; const uni = s?.university; const snap = s?.snapshot
+              return (
+                <Glass key={side} className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-11 w-11 rounded-xl flex items-center justify-center text-white text-sm font-semibold shrink-0" style={{ background: `linear-gradient(135deg, ${uni?.color}, ${uni?.color}90)` }}>
+                      {uni?.code?.slice(0, 2)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold truncate">{uni?.name}</div>
+                      <a href={uni?.url} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-300 hover:underline flex items-center gap-1 truncate">
+                        <ExternalLink className="h-3 w-3" />{uni?.url?.replace(/^https?:\/\//, '')}
+                      </a>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">Avg SEO</div>
+                      <div className="text-2xl font-semibold tabular-nums">{snap?.data?.avgSeoScore || snap?.data?.seo?.seoScore || 0}<span className="text-zinc-500 text-xs">/100</span></div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
+                      <div className="text-[10px] text-zinc-500">Pages</div>
+                      <div className="text-lg font-semibold text-indigo-300">{snap?.data?.pageCount || 1}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
+                      <div className="text-[10px] text-zinc-500">CTAs</div>
+                      <div className="text-lg font-semibold text-yellow-300">{snap?.data?.structure?.ctas?.length || 0}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
+                      <div className="text-[10px] text-zinc-500">Stats</div>
+                      <div className="text-lg font-semibold text-emerald-300">{snap?.data?.structure?.stats?.length || 0}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
+                      <div className="text-[10px] text-zinc-500">Nav</div>
+                      <div className="text-lg font-semibold text-cyan-300">{snap?.data?.structure?.nav?.length || 0}</div>
+                    </div>
+                  </div>
+                  {s?.pagespeed?.scores && (
+                    <div className="mt-3 grid grid-cols-4 gap-1.5">
+                      {['performance','accessibility','bestPractices','seo'].map(k => {
+                        const v = s.pagespeed.scores[k]
+                        const cls = v >= 90
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                          : v >= 50
+                          ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300'
+                          : 'border-red-500/30 bg-red-500/10 text-red-300'
+                        return (
+                          <div key={k} className={cx('rounded-md border text-center p-1.5', cls)}>
+                            <div className="text-[9px] uppercase text-zinc-400">{k.slice(0,4)}</div>
+                            <div className="text-sm font-semibold tabular-nums">{v}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </Glass>
+              )
+            })}
+          </div>
+
+          {/* Field-by-field comparison */}
+          {[
+            { label: 'Page Title', a: getPage(data.a)?.seo?.title, b: getPage(data.b)?.seo?.title, kind: 'text' },
+            { label: 'Meta Description', a: getPage(data.a)?.seo?.description, b: getPage(data.b)?.seo?.description, kind: 'text' },
+            { label: 'H1 Headline', a: (getPage(data.a)?.seo?.h1 || []).join(' | '), b: (getPage(data.b)?.seo?.h1 || []).join(' | '), kind: 'text' },
+            { label: 'Sections (H2)', a: (getPage(data.a)?.seo?.h2 || []).slice(0, 8), b: (getPage(data.b)?.seo?.h2 || []).slice(0, 8), kind: 'list' },
+            { label: 'Hero Image', a: getPage(data.a)?.seo?.ogImage, b: getPage(data.b)?.seo?.ogImage, kind: 'image' },
+            { label: 'CTAs (buttons)', a: (getPage(data.a)?.structure?.ctas || []).slice(0, 12), b: (getPage(data.b)?.structure?.ctas || []).slice(0, 12), kind: 'chips' },
+            { label: 'Key Stats', a: (getPage(data.a)?.structure?.stats || []).slice(0, 12), b: (getPage(data.b)?.structure?.stats || []).slice(0, 12), kind: 'chips' },
+            page === 'home' && { label: 'Navigation', a: (getPage(data.a)?.structure?.nav || []).slice(0, 20), b: (getPage(data.b)?.structure?.nav || []).slice(0, 20), kind: 'chips' },
+          ].filter(Boolean).map((f, idx) => {
+            const same = f.kind === 'list' || f.kind === 'chips'
+              ? JSON.stringify(f.a || []) === JSON.stringify(f.b || [])
+              : (f.a || '') === (f.b || '')
+            return (
+              <Glass key={idx} className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm font-medium text-white">{f.label}</div>
+                  <Badge variant="outline" className={cx('text-[10px]', same ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-orange-500/30 bg-orange-500/10 text-orange-300')}>
+                    {same ? '✓ Match' : '△ Differs'}
+                  </Badge>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {['a','b'].map(side => {
+                    const v = side === 'a' ? f.a : f.b
+                    const code = data[side]?.university?.code
+                    return (
+                      <div key={side} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">{code}</div>
+                        {f.kind === 'image' && v ? (
+                          <div>
+                            <img src={v} alt={f.label} className="w-full max-h-40 object-contain rounded-md border border-white/10 bg-black/40" onError={e => { e.currentTarget.style.display='none' }} />
+                            <a href={v} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-300 hover:underline break-all block mt-1">{v}</a>
+                          </div>
+                        ) : (f.kind === 'chips' || f.kind === 'list') && Array.isArray(v) ? (
+                          v.length === 0 ? <div className="text-xs text-zinc-500 italic">None</div> :
+                          <div className="flex flex-wrap gap-1">{v.map((x, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-zinc-200">{x}</span>)}</div>
+                        ) : (
+                          <div className="text-sm text-zinc-100 leading-relaxed break-words">{v || <em className="text-zinc-500">—</em>}</div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </Glass>
+            )
+          })}
+        </>
+      )}
+    </div>
+  )
+}
+
+function PageSpeedGrid({ universities }) {
+  const [strategy, setStrategy] = useState('mobile')
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [runningAll, setRunningAll] = useState(false)
+  const [runningId, setRunningId] = useState(null)
+
+  async function load() {
+    setLoading(true)
+    try {
+      const r = await api(`/pagespeed/all?strategy=${strategy}`)
+      setRows(r.results)
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [strategy])
+
+  async function runOne(u) {
+    setRunningId(u.id)
+    const t = toast.loading(`Running PageSpeed for ${u.code}…`)
+    try {
+      await api(`/pagespeed?url=${encodeURIComponent(u.url)}&strategy=${strategy}&force=1`)
+      toast.success(`${u.code}: done`, { id: t })
+      await load()
+    } catch (e) { toast.error(e.message, { id: t }) }
+    finally { setRunningId(null) }
+  }
+  async function runAll() {
+    setRunningAll(true)
+    const t = toast.loading(`Running PageSpeed for all ${rows.length} universities… this takes ~5 minutes`)
+    try {
+      for (const r of rows) {
+        try { await api(`/pagespeed?url=${encodeURIComponent(r.university.url)}&strategy=${strategy}&force=1`) } catch {}
+      }
+      toast.success('PageSpeed refreshed for all', { id: t })
+      await load()
+    } catch (e) { toast.error(e.message, { id: t }) }
+    finally { setRunningAll(false) }
+  }
+
+  const chartData = useMemo(() => rows.map(r => ({
+    name: r.university.code,
+    Performance: r.pagespeed?.scores?.performance ?? 0,
+    SEO: r.pagespeed?.scores?.seo ?? 0,
+    Accessibility: r.pagespeed?.scores?.accessibility ?? 0,
+    'Best Practices': r.pagespeed?.scores?.bestPractices ?? 0,
+  })), [rows])
+
+  const scoreCls = v => v >= 90 ? 'text-emerald-300' : v >= 50 ? 'text-yellow-300' : 'text-red-300'
+  const bgCls    = v => v >= 90 ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : v >= 50 ? 'border-yellow-500/30 bg-yellow-500/[0.06]' : 'border-red-500/30 bg-red-500/[0.06]'
+
+  return (
+    <div className="space-y-4">
+      <Glass className="p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <div className="text-sm font-medium flex items-center gap-2"><Gauge className="h-4 w-4 text-indigo-400" />Google PageSpeed Insights (all universities)</div>
+            <div className="text-xs text-zinc-500">Powered by Google Lighthouse · Cached 24h · Free tier: 25k reqs/day</div>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Select value={strategy} onValueChange={setStrategy}>
+              <SelectTrigger className="w-32 h-8 bg-white/5 border-white/10 text-white text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="mobile">Mobile</SelectItem><SelectItem value="desktop">Desktop</SelectItem></SelectContent>
+            </Select>
+            <Button size="sm" onClick={runAll} disabled={runningAll || loading} className="h-8 bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-400 hover:to-violet-400 text-white shadow-md">
+              {runningAll ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
+              Run all
+            </Button>
+            <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="h-8 text-zinc-300 hover:text-white hover:bg-white/10">
+              <RefreshCw className={cx('h-3.5 w-3.5 mr-1', loading && 'animate-spin')} />Refresh
+            </Button>
+          </div>
+        </div>
+      </Glass>
+
+      {rows.some(r => r.pagespeed) && (
+        <Glass className="p-4">
+          <div className="text-sm font-medium mb-3">PageSpeed Score Comparison ({strategy})</div>
+          <div className="h-72">
+            <ResponsiveContainer>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                <XAxis dataKey="name" stroke="#71717a" fontSize={11} />
+                <YAxis domain={[0, 100]} stroke="#71717a" fontSize={11} />
+                <RTooltip contentStyle={{ background: '#18181b', border: '1px solid #ffffff20', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="Performance" fill="#818cf8" radius={[4,4,0,0]} />
+                <Bar dataKey="SEO" fill="#34d399" radius={[4,4,0,0]} />
+                <Bar dataKey="Accessibility" fill="#fbbf24" radius={[4,4,0,0]} />
+                <Bar dataKey="Best Practices" fill="#f472b6" radius={[4,4,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Glass>
+      )}
+
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {rows.map(r => {
+          const u = r.university; const ps = r.pagespeed
+          return (
+            <Glass key={u.id} className="p-4">
+              <div className="flex items-start gap-2 mb-3">
+                <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white text-xs font-semibold shrink-0" style={{ background: `linear-gradient(135deg, ${u.color}, ${u.color}90)` }}>
+                  {u.code.slice(0, 2)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{u.name}</div>
+                  <div className="text-[10px] text-zinc-500 truncate">{u.url.replace(/^https?:\/\//, '')}</div>
+                </div>
+              </div>
+              {ps ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {[['Performance','performance'],['SEO','seo'],['A11y','accessibility'],['Best','bestPractices']].map(([lbl, k]) => (
+                      <div key={k} className={cx('rounded-md border p-2 text-center', bgCls(ps.scores[k]))}>
+                        <div className="text-[9px] uppercase tracking-wider text-zinc-400">{lbl}</div>
+                        <div className={cx('text-xl font-semibold tabular-nums', scoreCls(ps.scores[k]))}>{ps.scores[k]}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 grid grid-cols-2 gap-1">
+                    <div>LCP: <span className="text-zinc-300">{ps.coreWebVitals?.lcp?.display || '—'}</span></div>
+                    <div>CLS: <span className="text-zinc-300">{ps.coreWebVitals?.cls?.display || '—'}</span></div>
+                    <div>FCP: <span className="text-zinc-300">{ps.coreWebVitals?.fcp?.display || '—'}</span></div>
+                    <div>TBT: <span className="text-zinc-300">{ps.coreWebVitals?.tbt?.display || '—'}</span></div>
+                  </div>
+                  <div className="text-[10px] text-zinc-600 mt-2">Fetched {relTime(ps.fetchedAt)}</div>
+                </>
+              ) : (
+                <div className="text-xs text-zinc-500 italic text-center py-3">No PageSpeed data yet</div>
+              )}
+              <Button size="sm" variant="secondary" onClick={() => runOne(u)} disabled={runningId === u.id || runningAll} className="w-full mt-3 h-8 bg-white/10 hover:bg-white/20 text-zinc-100 border border-white/10">
+                {runningId === u.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1" />}
+                {ps ? 'Re-run' : 'Run PageSpeed'}
+              </Button>
+            </Glass>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true)
   const [dash, setDash] = useState(null)
@@ -1444,6 +1888,9 @@ export default function App() {
   const [actionPlan, setActionPlan] = useState(null)
   const [actionPlanOpen, setActionPlanOpen] = useState(false)
   const [scheduler, setScheduler] = useState(null)
+  const [dailyIntel, setDailyIntel] = useState(null)
+  const [dailyIntelLoading, setDailyIntelLoading] = useState(false)
+  const [seedingBaseline, setSeedingBaseline] = useState(false)
   // Auth state
   const [me, setMe] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
@@ -1473,11 +1920,38 @@ export default function App() {
       setRecentChanges24h(recent24)
       try { const sch = await api('/scheduler/status'); setScheduler(sch) } catch {}
       try { const ap = await api('/ai/action-plan/latest'); if (ap) setActionPlan(ap) } catch {}
+      try { const di = await api('/ai/daily-intel/latest'); if (di) setDailyIntel(di) } catch {}
     } catch (e) {
       toast.error('Failed to load: ' + e.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  async function refreshDailyIntel(force = false) {
+    setDailyIntelLoading(true)
+    const t = toast.loading('Generating daily competitive intelligence…')
+    try {
+      const r = await api(`/ai/daily-intel${force ? '?force=1' : ''}`, { method: 'POST' })
+      setDailyIntel(r)
+      toast.success('Daily intelligence updated', { id: t })
+    } catch (e) {
+      toast.error(e.message, { id: t })
+    } finally { setDailyIntelLoading(false) }
+  }
+
+  async function seedBaseline() {
+    if (!confirm('This will reset baseline snapshots and generate realistic day-over-day changes for all universities. Continue?')) return
+    setSeedingBaseline(true)
+    const t = toast.loading('Seeding baseline snapshots and computing changes…')
+    try {
+      const r = await api('/admin/seed-baseline', { method: 'POST' })
+      const total = r.summary?.reduce((a, s) => a + (s.changesCreated || 0), 0) || 0
+      toast.success(`Seeded ${total} changes across ${r.summary?.length || 0} universities`, { id: t })
+      await refresh()
+    } catch (e) {
+      toast.error(e.message, { id: t })
+    } finally { setSeedingBaseline(false) }
   }
 
   useEffect(() => { if (me) refresh() }, [me])
@@ -1605,9 +2079,15 @@ export default function App() {
             <span className="ml-6 text-[10px] border border-white/10 rounded px-1.5 py-0.5 text-zinc-500">⌘K</span>
           </button>
           {me?.role === 'admin' && (
-            <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={() => setAdminOpen(true)}>
-              <ShieldCheck className="h-3.5 w-3.5 mr-1" />Admin
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={seedBaseline} disabled={seedingBaseline} title="Populate realistic day-over-day changes across all universities (admin)">
+                {seedingBaseline ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Database className="h-3.5 w-3.5 mr-1" />}
+                Seed Baseline
+              </Button>
+              <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={() => setAdminOpen(true)}>
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" />Admin
+              </Button>
+            </>
           )}
           <Button size="sm" variant="secondary" className="h-8 bg-white/10 hover:bg-white/20 text-zinc-100 hover:text-white border border-white/10" onClick={refresh}>
             <RefreshCw className={cx('h-3.5 w-3.5 mr-1', loading && 'animate-spin')} />Refresh
@@ -1708,15 +2188,19 @@ export default function App() {
 
         {/* Tabs */}
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="bg-white/[0.03] border border-white/10">
+          <TabsList className="bg-white/[0.03] border border-white/10 flex-wrap h-auto">
             <TabsTrigger value="overview"><BarChart3 className="h-3.5 w-3.5 mr-1" />Overview</TabsTrigger>
             <TabsTrigger value="universities"><GraduationCap className="h-3.5 w-3.5 mr-1" />Universities</TabsTrigger>
+            <TabsTrigger value="compare"><GitCompare className="h-3.5 w-3.5 mr-1" />Compare</TabsTrigger>
+            <TabsTrigger value="pagespeed"><Gauge className="h-3.5 w-3.5 mr-1" />PageSpeed</TabsTrigger>
             <TabsTrigger value="changes"><Activity className="h-3.5 w-3.5 mr-1" />Changes</TabsTrigger>
             <TabsTrigger value="trends"><LineChartIcon className="h-3.5 w-3.5 mr-1" />Trends</TabsTrigger>
             <TabsTrigger value="logs"><FileText className="h-3.5 w-3.5 mr-1" />Crawler Logs</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4 mt-4">
+            <DailyIntelCard intel={dailyIntel} loading={dailyIntelLoading} onRefresh={() => refreshDailyIntel(true)} canRefresh={true} />
+
             <div className="grid lg:grid-cols-3 gap-4">
               <Glass className="p-5 lg:col-span-2">
                 <div className="flex items-center justify-between mb-3">
@@ -1822,6 +2306,14 @@ export default function App() {
                 {unis.map(u => <UniversityCard key={u.id} uni={u} onView={viewUni} onBenchmark={benchmark} benchmarking={benchmarking} onAudit={setAuditUni} />)}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="compare" className="mt-4">
+            <CompareView universities={unis} />
+          </TabsContent>
+
+          <TabsContent value="pagespeed" className="mt-4">
+            <PageSpeedGrid universities={unis} />
           </TabsContent>
 
           <TabsContent value="changes" className="mt-4">
@@ -2172,6 +2664,9 @@ export default function App() {
           <CommandGroup heading="Actions">
             <CommandItem onSelect={() => { setCmdOpen(false); runCrawl('all') }}><Zap className="h-4 w-4 mr-2" />Run daily crawl (all)</CommandItem>
             <CommandItem onSelect={() => { setCmdOpen(false); generateExec() }}><Sparkles className="h-4 w-4 mr-2" />Generate executive briefing</CommandItem>
+            <CommandItem onSelect={() => { setCmdOpen(false); refreshDailyIntel(true) }}><Rocket className="h-4 w-4 mr-2" />Refresh daily competitive intel</CommandItem>
+            <CommandItem onSelect={() => { setCmdOpen(false); setTab('compare') }}><GitCompare className="h-4 w-4 mr-2" />Compare universities</CommandItem>
+            <CommandItem onSelect={() => { setCmdOpen(false); setTab('pagespeed') }}><Gauge className="h-4 w-4 mr-2" />View PageSpeed scores</CommandItem>
             <CommandItem onSelect={() => { setCmdOpen(false); setTab('changes') }}><Activity className="h-4 w-4 mr-2" />View all changes</CommandItem>
             <CommandItem onSelect={() => { setCmdOpen(false); setTab('logs') }}><FileText className="h-4 w-4 mr-2" />View crawler logs</CommandItem>
           </CommandGroup>
