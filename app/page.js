@@ -76,6 +76,7 @@ function AnimatedCounter({ value, duration = 900, prefix = '', suffix = '' }) {
 function StatusChip({ status }) {
   const map = {
     healthy: { c: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: 'Healthy' },
+    stale:   { c: 'bg-amber-500/15 text-amber-400 border-amber-500/30', label: 'Stale' },
     error:   { c: 'bg-red-500/15 text-red-400 border-red-500/30', label: 'Error' },
     idle:    { c: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30', label: 'Idle' },
   }
@@ -828,6 +829,19 @@ function ChangeRow({ c }) {
               </a>
             )}
             <div className="ml-auto flex gap-1">
+              {c.pageUrl && (
+                <a href={`/api/screenshot?url=${encodeURIComponent(c.pageUrl)}`} target="_blank" rel="noreferrer" onClick={async e => {
+                  e.preventDefault()
+                  try {
+                    const r = await api(`/screenshot?url=${encodeURIComponent(c.pageUrl)}&w=1400&h=900`)
+                    window.open(r.url, '_blank')
+                  } catch(err) { toast.error(err.message) }
+                }}>
+                  <Button size="sm" variant="ghost" className="h-7 text-zinc-300 hover:text-white hover:bg-white/10 text-xs">
+                    <Eye className="h-3.5 w-3.5 mr-1" />Live screenshot
+                  </Button>
+                </a>
+              )}
               <Button size="sm" variant="ghost" onClick={copyEvidence} className="h-7 text-zinc-300 hover:text-white hover:bg-white/10 text-xs">
                 <FileText className="h-3.5 w-3.5 mr-1" />Copy evidence
               </Button>
@@ -848,6 +862,18 @@ function ChangeRow({ c }) {
             <span>severity: <span className="capitalize text-zinc-300">{c.severity}</span></span>
           </div>
           <EvidenceBody c={c} />
+          {c.pageUrl && (
+            <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-1"><Eye className="h-3 w-3" />Visual evidence (live screenshot of the current page)</div>
+              <img
+                src={`https://s.wordpress.com/mshots/v1/${encodeURIComponent(c.pageUrl)}?w=1200&h=800`}
+                alt="Live screenshot"
+                className="w-full rounded-md border border-white/10 bg-white/5"
+                onError={e => { e.currentTarget.style.display='none' }}
+              />
+              <div className="text-[10px] text-zinc-600 mt-1 italic">First-time renders can take ~10-30s to appear. Reload if blank.</div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1415,6 +1441,9 @@ export default function App() {
   const [tab, setTab] = useState('overview')
   const [auditUni, setAuditUni] = useState(null)
   const [recentChanges24h, setRecentChanges24h] = useState([])
+  const [actionPlan, setActionPlan] = useState(null)
+  const [actionPlanOpen, setActionPlanOpen] = useState(false)
+  const [scheduler, setScheduler] = useState(null)
   // Auth state
   const [me, setMe] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
@@ -1442,6 +1471,8 @@ export default function App() {
       setExecSummary(e)
       const recent24 = await api('/changes?sinceHours=24&limit=30')
       setRecentChanges24h(recent24)
+      try { const sch = await api('/scheduler/status'); setScheduler(sch) } catch {}
+      try { const ap = await api('/ai/action-plan/latest'); if (ap) setActionPlan(ap) } catch {}
     } catch (e) {
       toast.error('Failed to load: ' + e.message)
     } finally {
@@ -1560,6 +1591,12 @@ export default function App() {
             <div className="hidden lg:flex items-center gap-1 text-[11px] text-zinc-500 border border-white/10 rounded-lg px-2.5 py-1.5 bg-white/[0.02]">
               <Calendar className="h-3 w-3" />
               <span>Last scan {relTime(dash.recentLogs[0].createdAt)}</span>
+              {scheduler?.nextRunAt && (
+                <>
+                  <span className="mx-1 text-zinc-700">·</span>
+                  <span className="text-indigo-300/80">Next auto-run {new Date(scheduler.nextRunAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' })} IST</span>
+                </>
+              )}
             </div>
           )}
           <button onClick={() => setCmdOpen(true)} className="hidden md:flex items-center gap-2 text-xs text-zinc-400 border border-white/10 rounded-lg px-3 py-1.5 bg-white/[0.02] hover:bg-white/5">
@@ -1823,8 +1860,194 @@ export default function App() {
         </Tabs>
       </div>
 
+      {/* LPU Action Plan Dialog */}
+      <Dialog open={actionPlanOpen} onOpenChange={setActionPlanOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-white/10 max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-indigo-400" />LPU Action Plan
+            </DialogTitle>
+            <DialogDescription>Synthesized by GPT-5 from all AI benchmark reports · {actionPlan && new Date(actionPlan.createdAt).toLocaleString()}</DialogDescription>
+          </DialogHeader>
+          {actionPlan?.plan && (
+            <div className="space-y-4">
+              <Glass className="p-5">
+                <h2 className="text-xl font-semibold">{actionPlan.plan.headline}</h2>
+                <p className="text-sm text-zinc-400 mt-2 leading-relaxed">{actionPlan.plan.situation}</p>
+              </Glass>
+              <Glass className="p-4">
+                <div className="text-xs uppercase tracking-wider text-indigo-300 mb-3">Top 3 Strategic Bets (30-90 days)</div>
+                <div className="space-y-2">
+                  {actionPlan.plan.top3Bets?.map((b, i) => (
+                    <div key={i} className="rounded-xl border border-indigo-500/25 bg-indigo-500/[0.05] p-3">
+                      <div className="flex items-start gap-2">
+                        <div className="text-sm font-medium flex-1">{i+1}. {b.title}</div>
+                        <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200">{b.timeframeDays}d</Badge>
+                      </div>
+                      <div className="text-xs text-zinc-400 mt-1"><b>Why:</b> {b.why}</div>
+                      <div className="text-xs text-zinc-300 mt-1"><b>How LPU should execute:</b> {b.howLpuShouldExecute}</div>
+                      <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-zinc-500">
+                        <span>💥 Impact: <span className="text-zinc-300">{b.estimatedImpact}</span></span>
+                        <span>📊 KPI: <span className="text-zinc-300">{b.kpi}</span></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Glass>
+              <div className="grid md:grid-cols-2 gap-4">
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-emerald-300 mb-3 flex items-center gap-1"><Zap className="h-3.5 w-3.5" />Quick Wins (&lt;2 weeks)</div>
+                  <div className="space-y-1.5">
+                    {actionPlan.plan.quickWins?.map((q, i) => (
+                      <div key={i} className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] p-2 text-xs">
+                        <div className="flex items-start gap-2">
+                          <div className="font-medium text-white flex-1">{q.title}</div>
+                          <Badge variant="outline" className="text-[10px] border-emerald-500/40 bg-emerald-500/10 text-emerald-200">{q.effortHours}h</Badge>
+                        </div>
+                        <div className="text-zinc-400 mt-1">{q.detail}</div>
+                        <div className="text-[10px] text-emerald-300/70 mt-1">Owner: {q.owner}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-orange-300 mb-3">Structural Investments</div>
+                  <div className="space-y-1.5">
+                    {actionPlan.plan.structuralInvestments?.map((s, i) => (
+                      <div key={i} className="rounded-lg border border-orange-500/25 bg-orange-500/[0.04] p-2 text-xs">
+                        <div className="font-medium text-white">{s.title}</div>
+                        <div className="text-zinc-400 mt-1">{s.detail}</div>
+                        <div className="text-[10px] text-orange-300/70 mt-1">Owner: {s.owner} · Impact: {s.estimatedImpact}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+              </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-purple-300 mb-2">SEO Actions</div>
+                  <div className="space-y-1">
+                    {actionPlan.plan.seoActions?.map((s, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs">
+                        <SeverityChip severity={s.priority} />
+                        <div><span className="text-white">{s.action}</span> <span className="text-zinc-500">— {s.target}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-yellow-300 mb-2">Content gaps to fill</div>
+                  <ul className="space-y-1 text-xs text-zinc-200">
+                    {actionPlan.plan.contentGapsToFill?.map((g, i) => <li key={i} className="flex gap-1"><Plus className="h-3 w-3 text-yellow-400 shrink-0 mt-0.5" /><span>{g}</span></li>)}
+                  </ul>
+                </Glass>
+              </div>
+              <Glass className="p-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1"><BarChart3 className="h-3.5 w-3.5" />Weekly Tracking KPIs</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {actionPlan.plan.trackingKpis?.map((k, i) => <Badge key={i} variant="outline" className="border-white/15 bg-white/5 text-zinc-200">{k}</Badge>)}
+                </div>
+              </Glass>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* SEO & Performance Audit */}
       <SeoAuditDialog universityId={auditUni?.id} open={!!auditUni} onClose={() => setAuditUni(null)} />
+
+      {/* LPU Action Plan Dialog */}
+      <Dialog open={actionPlanOpen} onOpenChange={setActionPlanOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-white/10 max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-indigo-400" />LPU Action Plan
+            </DialogTitle>
+            <DialogDescription>Synthesized by GPT-5 from all AI benchmark reports · {actionPlan && new Date(actionPlan.createdAt).toLocaleString()}</DialogDescription>
+          </DialogHeader>
+          {actionPlan?.plan && (
+            <div className="space-y-4">
+              <Glass className="p-5">
+                <h2 className="text-xl font-semibold">{actionPlan.plan.headline}</h2>
+                <p className="text-sm text-zinc-400 mt-2 leading-relaxed">{actionPlan.plan.situation}</p>
+              </Glass>
+              <Glass className="p-4">
+                <div className="text-xs uppercase tracking-wider text-indigo-300 mb-3">Top 3 Strategic Bets (30-90 days)</div>
+                <div className="space-y-2">
+                  {actionPlan.plan.top3Bets?.map((b, i) => (
+                    <div key={i} className="rounded-xl border border-indigo-500/25 bg-indigo-500/[0.05] p-3">
+                      <div className="flex items-start gap-2">
+                        <div className="text-sm font-medium flex-1">{i+1}. {b.title}</div>
+                        <Badge variant="outline" className="text-[10px] border-indigo-500/40 bg-indigo-500/10 text-indigo-200">{b.timeframeDays}d</Badge>
+                      </div>
+                      <div className="text-xs text-zinc-400 mt-1"><b>Why:</b> {b.why}</div>
+                      <div className="text-xs text-zinc-300 mt-1"><b>How LPU should execute:</b> {b.howLpuShouldExecute}</div>
+                      <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-zinc-500">
+                        <span>Impact: <span className="text-zinc-300">{b.estimatedImpact}</span></span>
+                        <span>KPI: <span className="text-zinc-300">{b.kpi}</span></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Glass>
+              <div className="grid md:grid-cols-2 gap-4">
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-emerald-300 mb-3 flex items-center gap-1"><Zap className="h-3.5 w-3.5" />Quick Wins (&lt;2 weeks)</div>
+                  <div className="space-y-1.5">
+                    {actionPlan.plan.quickWins?.map((q, i) => (
+                      <div key={i} className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] p-2 text-xs">
+                        <div className="flex items-start gap-2">
+                          <div className="font-medium text-white flex-1">{q.title}</div>
+                          <Badge variant="outline" className="text-[10px] border-emerald-500/40 bg-emerald-500/10 text-emerald-200">{q.effortHours}h</Badge>
+                        </div>
+                        <div className="text-zinc-400 mt-1">{q.detail}</div>
+                        <div className="text-[10px] text-emerald-300/70 mt-1">Owner: {q.owner}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-orange-300 mb-3">Structural Investments (30-90 days)</div>
+                  <div className="space-y-1.5">
+                    {actionPlan.plan.structuralInvestments?.map((s, i) => (
+                      <div key={i} className="rounded-lg border border-orange-500/25 bg-orange-500/[0.04] p-2 text-xs">
+                        <div className="font-medium text-white">{s.title}</div>
+                        <div className="text-zinc-400 mt-1">{s.detail}</div>
+                        <div className="text-[10px] text-orange-300/70 mt-1">Owner: {s.owner} · Impact: {s.estimatedImpact}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+              </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-purple-300 mb-2">SEO Actions</div>
+                  <div className="space-y-1">
+                    {actionPlan.plan.seoActions?.map((s, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs">
+                        <SeverityChip severity={s.priority} />
+                        <div><span className="text-white">{s.action}</span> <span className="text-zinc-500">— {s.target}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                </Glass>
+                <Glass className="p-4">
+                  <div className="text-xs uppercase tracking-wider text-yellow-300 mb-2">Content gaps to fill</div>
+                  <ul className="space-y-1 text-xs text-zinc-200">
+                    {actionPlan.plan.contentGapsToFill?.map((g, i) => <li key={i} className="flex gap-1"><Plus className="h-3 w-3 text-yellow-400 shrink-0 mt-0.5" /><span>{g}</span></li>)}
+                  </ul>
+                </Glass>
+              </div>
+              <Glass className="p-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1"><BarChart3 className="h-3.5 w-3.5" />Weekly Tracking KPIs</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {actionPlan.plan.trackingKpis?.map((k, i) => <Badge key={i} variant="outline" className="border-white/15 bg-white/5 text-zinc-200">{k}</Badge>)}
+                </div>
+              </Glass>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Admin Panel Dialog */}
       <Dialog open={adminOpen} onOpenChange={setAdminOpen}>

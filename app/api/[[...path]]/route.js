@@ -5,6 +5,7 @@ import { SEED_UNIVERSITIES } from '@/lib/universities'
 import { crawlSite, diffSnapshots } from '@/lib/crawler'
 import { generateBenchmark, generateExecutiveSummary } from '@/lib/ai'
 import { sendOtpEmail, hashCode, generateOtp, generateToken, isAllowedEmail, ALLOWED_DOMAIN, getSessionUser } from '@/lib/auth'
+import { startScheduler, runDailyJob, getSchedulerStatus } from '@/lib/scheduler'
 
 let client
 let db
@@ -17,6 +18,8 @@ async function connectToMongo() {
     }
     db = client.db(process.env.DB_NAME)
     await ensureSeed(db)
+    // Start the scheduler once DB is ready
+    startScheduler(async () => db)
   }
   return db
 }
@@ -140,15 +143,22 @@ async function crawlOneUniversity(db, uni) {
     await db.collection('changes').insertMany(changeDocs)
   }
 
-  // Update university health
-  const health = result.ok
-    ? { status: 'healthy', seoScore: result.seo?.seoScore || 0, lastMs: result.elapsedMs, changes: diff.changeCount, pageCount: result.pageCount || 1, coverage: result.coverage || ['home'] }
-    : { status: 'error', seoScore: 0, lastMs: result.elapsedMs, changes: 0, pageCount: 0, coverage: [] }
-
-  await db.collection('universities').updateOne(
-    { id: uni.id },
-    { $set: { lastCrawledAt: startedAt, health } }
-  )
+  // Update university health — preserve last-good data on transient fetch failures
+  if (result.ok) {
+    const health = { status: 'healthy', seoScore: result.seo?.seoScore || 0, lastMs: result.elapsedMs, changes: diff.changeCount, pageCount: result.pageCount || 1, coverage: result.coverage || ['home'], lastOkAt: startedAt }
+    await db.collection('universities').updateOne(
+      { id: uni.id },
+      { $set: { lastCrawledAt: startedAt, health } }
+    )
+  } else {
+    // Fetch failed — mark stale but keep previous seo/pages data so the dashboard stays informative
+    const existing = uni.health || {}
+    const stale = { ...existing, status: 'stale', lastError: (result.errors || []).join('; '), lastFailedAt: startedAt, lastMs: result.elapsedMs }
+    await db.collection('universities').updateOne(
+      { id: uni.id },
+      { $set: { lastCrawledAt: startedAt, health: stale } }
+    )
+  }
 
   // Crawler log
   await db.collection('crawler_logs').insertOne({
@@ -729,6 +739,51 @@ async function handleRoute(request, { params }) {
       } catch (e) {
         return handleCORS(NextResponse.json({ error: 'PageSpeed fetch failed: ' + e.message }, { status: 500 }))
       }
+    }
+
+    // GET /api/scheduler/status
+    if (route === '/scheduler/status' && method === 'GET') {
+      return handleCORS(NextResponse.json(getSchedulerStatus()))
+    }
+    // POST /api/scheduler/run  { source?: 'manual' | 'external-cron' } — protected by session or CRON_SECRET
+    if (route === '/scheduler/run' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const secret = request.headers.get('x-cron-secret')
+      const okBySecret = process.env.CRON_SECRET && secret === process.env.CRON_SECRET
+      if (!okBySecret && (!currentUser || currentUser.role !== 'admin')) {
+        return handleCORS(NextResponse.json({ error: 'admin or CRON_SECRET required' }, { status: 403 }))
+      }
+      const r = await runDailyJob(db, { source: body.source || (okBySecret ? 'external-cron' : 'manual') })
+      return handleCORS(NextResponse.json(r))
+    }
+
+    // GET /api/screenshot?url=... — proxy to WordPress mShots (free, no key required)
+    if (route === '/screenshot' && method === 'GET') {
+      const { searchParams } = new URL(request.url)
+      const target = searchParams.get('url')
+      const w = parseInt(searchParams.get('w') || '1200')
+      const h = parseInt(searchParams.get('h') || '800')
+      if (!target) return handleCORS(NextResponse.json({ error: 'url required' }, { status: 400 }))
+      const shotUrl = `https://s.wordpress.com/mshots/v1/${encodeURIComponent(target)}?w=${w}&h=${h}`
+      return handleCORS(NextResponse.json({ url: shotUrl }))
+    }
+
+    // POST /api/ai/action-plan — Aggregated LPU improvement plan across all competitors
+    if (route === '/ai/action-plan' && method === 'POST') {
+      const reports = await db.collection('ai_reports').find({}).sort({ createdAt: -1 }).limit(20).toArray()
+      if (reports.length === 0) {
+        return handleCORS(NextResponse.json({ error: 'Generate at least one AI benchmark first.' }, { status: 400 }))
+      }
+      const { generateLpuActionPlan } = await import('@/lib/ai')
+      const plan = await generateLpuActionPlan({ reports })
+      const doc = { id: uuidv4(), plan, basedOnReports: reports.map(r => r.competitorCode), createdAt: new Date() }
+      await db.collection('action_plans').insertOne(doc)
+      return handleCORS(NextResponse.json(clean(doc)))
+    }
+    // GET /api/ai/action-plan/latest
+    if (route === '/ai/action-plan/latest' && method === 'GET') {
+      const r = await db.collection('action_plans').find({}).sort({ createdAt: -1 }).limit(1).toArray()
+      return handleCORS(NextResponse.json(clean(r[0]) || null))
     }
 
     return handleCORS(NextResponse.json({ error: `Route ${route} not found` }, { status: 404 }))
