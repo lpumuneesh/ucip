@@ -932,14 +932,23 @@ async function handleRoute(request, { params }) {
         }
         await db.collection('snapshots').insertOne(prevSnapshot)
 
-        // Compute diff and insert change docs (detected "now" so they show in Last 24h)
+        // Compute diff and insert change docs. Interleave detectedAt across universities so the
+        // "Recent Changes" widget alternates competitors (not clustered by insert order).
+        //   uniIndex=u (0..N-1), item index=i (0..K-1)  →  offset = i * N + u minutes
+        // When sorted by detectedAt DESC:
+        //   positions 0..N-1 = uni_0..uni_{N-1} item 0
+        //   positions N..2N-1 = uni_0..uni_{N-1} item 1
+        //   …natural round-robin across competitors.
         const diff = diffSnapshots(prevData, curr.data)
-        const detectedAt = new Date()
+        const uniIndex = unis.findIndex(x => x.id === uni.id)
+        const now = Date.now()
         if (diff.changes.length > 0) {
           const pages = curr.data.pages || {}
-          const changeDocs = diff.changes.map(c => {
+          const changeDocs = diff.changes.map((c, i) => {
             const pageKey = c.page || 'home'
             const p = pages[pageKey]
+            const offsetMin = i * unis.length + uniIndex
+            const detectedAt = new Date(now - offsetMin * 60 * 1000)
             return {
               id: uuidv4(), universityId: uni.id, universityCode: uni.code, universityName: uni.name,
               snapshotId: curr.id, previousSnapshotId: prevSnapshot.id,

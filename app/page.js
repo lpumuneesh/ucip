@@ -1921,6 +1921,14 @@ export default function App() {
       try { const sch = await api('/scheduler/status'); setScheduler(sch) } catch {}
       try { const ap = await api('/ai/action-plan/latest'); if (ap) setActionPlan(ap) } catch {}
       try { const di = await api('/ai/daily-intel/latest'); if (di) setDailyIntel(di) } catch {}
+      // If we have changes but no daily intel briefing yet, auto-generate it (once)
+      try {
+        const haveIntel = await api('/ai/daily-intel/latest')
+        const recent24Count = (await api('/changes?sinceHours=24&limit=1')).length
+        if (!haveIntel && recent24Count > 0) {
+          refreshDailyIntel(false).catch(() => {})
+        }
+      } catch {}
     } catch (e) {
       toast.error('Failed to load: ' + e.message)
     } finally {
@@ -1949,6 +1957,8 @@ export default function App() {
       const total = r.summary?.reduce((a, s) => a + (s.changesCreated || 0), 0) || 0
       toast.success(`Seeded ${total} changes across ${r.summary?.length || 0} universities`, { id: t })
       await refresh()
+      // Auto-regenerate the daily intel briefing off the new changes (fire-and-forget)
+      refreshDailyIntel(true).catch(() => {})
     } catch (e) {
       toast.error(e.message, { id: t })
     } finally { setSeedingBaseline(false) }
